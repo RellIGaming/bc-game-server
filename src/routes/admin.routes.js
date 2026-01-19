@@ -1,18 +1,25 @@
 import express from "express";
 import { protect } from "../middleware/auth.middleware.js";
-import { allowRoles } from "../middleware/role.middleware.js";
-import { changeUserRole } from "../controllers/admin.controller.js";
+import { isAdmin } from "../middleware/admin.middleware.js";
+import {
+  getAllUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  changeUserRole,
+  adminWalletUpdate,
+} from "../controllers/admin.controller.js";
 
 const router = express.Router();
 
-/**
- * ADMIN ONLY
- */
-router.post(
-  "/change-role",
-  protect,
-  allowRoles("admin"),
-  changeUserRole
-);
+router.use(protect, isAdmin);
+
+router.get("/users", getAllUsers);
+router.post("/users", createUser);
+router.put("/users/:userId", updateUser);
+router.delete("/users/:userId", deleteUser);
+
+router.post("/change-role", changeUserRole);
+router.post("/wallet", adminWalletUpdate);
 
 export default router;
