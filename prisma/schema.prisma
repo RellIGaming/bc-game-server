@@ -1,0 +1,703 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  user
+  affiliate
+  agent
+  admin
+
+  @@map("user_role")
+}
+
+enum GameType {
+  CRASH
+  DICE
+  SLOT
+  SPORTS
+}
+
+enum GameCategory {
+  originals
+  exclusive
+  slots
+  live
+  sports
+  hot
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAW
+  BET_DEBIT
+  BET_WIN
+  BET_REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum BetSelection {
+  home
+  draw
+  away
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  SUSPENDED
+  FINISHED
+  CANCELLED
+}
+
+enum MarketStatus {
+  ACTIVE
+  SUSPENDED
+  SETTLED
+}
+
+enum CasinoBetStatus {
+  PENDING
+  WON
+  LOST
+  CANCELLED
+}
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+  VOID
+  CASHED_OUT
+}
+
+enum RoundStatus {
+  RUNNING
+  CRASHED
+  FINISHED
+}
+
+enum BetType {
+  SINGLE
+  PARLAY
+}
+
+enum AuditAction {
+  SUSPENDED
+  RESUMED
+  ODDS_CHANGED
+}
+
+enum CrashRoundStatus {
+  WAITING
+  RUNNING
+  CRASHED
+}
+
+enum CrashBetStatus {
+  PENDING
+  WON
+  LOST
+  CASHED_OUT
+}
+
+enum DepositStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id       Int     @id @default(autoincrement())
+  username String  @unique @db.VarChar(100)
+  email    String? @unique @db.VarChar(150)
+  phone    String? @db.VarChar(20)
+  password String  @db.VarChar(255)
+
+  role UserRole @default(user)
+isActive  Boolean @default(true)
+  referredBy Int? @map("referred_by")
+
+  resetPasswordToken  String?   @map("reset_password_token") @db.VarChar(255)
+  resetPasswordExpire DateTime? @map("reset_password_expire")
+
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") // add @default(now())
+  balance          Decimal   @default(0)
+  profileImage     String?   @map("profile_image") @db.VarChar(255)
+  deposits         Deposit[] @relation("UserDeposits")
+  approvedDeposits Deposit[] @relation("AgentDeposits")
+
+  withdrawals         Withdrawal[]
+  approvedWithdrawals Withdrawal[]        @relation("AgentWithdrawals")
+  agentNotifications  Notification[]      @relation("AgentNotifications")
+  wallets             Wallet[]
+  bets                Bet[]
+  crashBets           CrashBet[]
+  transactions        WalletTransaction[]
+  diceBets            DiceBet[]
+  slotSpins           SlotSpin[]
+
+  vault     Vault?
+  rollovers Rollover[]
+  swaps     Swap[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Game {
+  id    BigInt @id @default(autoincrement())
+  name  String @db.VarChar(255)
+  slug  String @unique @db.VarChar(255)
+  image String
+
+  provider String? @db.VarChar(100)
+  players  Int     @default(0)
+
+  gameType GameType
+  category GameCategory
+  isActive Boolean      @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  crashRounds CrashRound[]
+  diceBets    DiceBet[]
+  slotSpins   SlotSpin[]
+
+  @@index([category])
+  @@map("games")
+}
+
+model Withdrawal {
+  id      Int    @id @default(autoincrement())
+  orderId String @unique
+
+  userId  Int
+  agentId Int?
+
+  currency String
+  method   String // UPI / BKASH / NAGAD / CRYPTO
+
+  account String // wallet address / upi id / phone
+  amount  Decimal @db.Decimal(38, 2)
+
+  note String?
+
+  status WithdrawalStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id])
+  agent User? @relation("AgentWithdrawals", fields: [agentId], references: [id])
+
+  @@index([userId])
+  @@index([agentId])
+}
+
+model Deposit {
+  id      Int    @id @default(autoincrement())
+  orderId String @unique
+
+  userId  Int
+  agentId Int?
+
+  currency String
+  method   String
+  network  String?
+
+  amount Decimal @db.Decimal(38, 2)
+
+  txHash String?
+  txId   String?
+  proof  String?
+
+  status DepositStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation("UserDeposits", fields: [userId], references: [id])
+  agent User? @relation("AgentDeposits", fields: [agentId], references: [id])
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([status])
+}
+
+
+model Vault {
+  id      Int     @id @default(autoincrement())
+  userId  Int     @unique
+  balance Decimal @default(0) @db.Decimal(38, 2)
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Rollover {
+  id       Int     @id @default(autoincrement())
+  userId   Int
+  wagered  Decimal @default(0)
+  required Decimal
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Swap {
+  id Int @id @default(autoincrement())
+
+  userId Int
+
+  fromCurrency String
+  toCurrency   String
+
+  amountFrom Decimal @db.Decimal(38, 2)
+  amountTo   Decimal @db.Decimal(38, 2)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model SidebarMenu {
+  id       Int  @id @default(autoincrement())
+  parentId Int?
+
+  parent   SidebarMenu?  @relation("MenuHierarchy", fields: [parentId], references: [id])
+  children SidebarMenu[] @relation("MenuHierarchy")
+
+  menuKey String
+  label   String
+  path    String?
+  icon    String?
+  section String
+
+  hasSubmenu Boolean @default(false)
+  isActive   Boolean @default(true)
+  sortOrder  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sidebar_menus")
+}
+
+model Token {
+  id                Int    @id @default(autoincrement())
+  name              String
+  symbol            String
+  price             Float
+  changePercent     Float
+  marketCap         Float
+  volume24h         Float
+  holders           Int
+  circulatingSupply Float
+  maxSupply         Float
+  lockedPercent     Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tokens")
+}
+
+model TokenPriceHistory {
+  id        Int      @id @default(autoincrement())
+  price     Float
+  timeframe String
+  createdAt DateTime @default(now())
+
+  @@map("token_price_history")
+}
+
+model Wallet {
+  id Int @id @default(autoincrement())
+
+  userId Int @map("user_id")
+
+  balance  Decimal @default(0) @db.Decimal(38, 2)
+  bonus    Decimal @default(0) @db.Decimal(38, 2)
+  currency String
+  iconUrl  String? @map("icon_url")
+
+  isLocked  Boolean   @default(false) @map("is_locked")
+  createdAt DateTime? @map("created_at")
+  updatedAt DateTime? @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, currency])
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id Int @id @default(autoincrement())
+
+  userId   Int               @map("user_id")
+  currency String
+  type     TransactionType
+  status   TransactionStatus @default(PENDING)
+
+  amount Decimal @db.Decimal(38, 2)
+
+  balanceBefore Decimal? @map("balance_before") @db.Decimal(38, 2)
+  balanceAfter  Decimal? @map("balance_after") @db.Decimal(38, 2)
+
+  referenceId   String? @map("reference_id") @db.VarChar(100)
+  referenceType String? @map("reference_type") @db.VarChar(50)
+
+  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([referenceId, type])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([type])
+  @@index([referenceId, type])
+  @@map("wallet_transactions")
+}
+
+model Match {
+  id        BigInt      @id @default(autoincrement())
+  sport     String
+  league    String
+  country   String?
+  startTime DateTime
+  status    MatchStatus @default(SCHEDULED)
+  isLive    Boolean     @default(false)
+  liveTime  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  markets Market[]
+  bets    Bet[]
+  result  MatchResult?
+
+  @@index([sport])
+  @@index([status])
+  @@index([startTime])
+  @@map("matches")
+}
+
+model Market {
+  id        BigInt       @id @default(autoincrement())
+  matchId   BigInt       @map("match_id")
+  name      String
+  status    MarketStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  match   Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  options MarketOption[]
+  bets    Bet[]
+  audits  MarketAuditLog[]
+
+  @@index([matchId])
+  @@index([status])
+  @@map("markets")
+}
+
+model MarketOption {
+  id        BigInt   @id @default(autoincrement())
+  marketId  BigInt   @map("market_id")
+  label     String
+  value     String
+  odds      Decimal  @db.Decimal(10, 4)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  market      Market           @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  bets        Bet[]
+  liabilities MatchLiability[]
+  wonResults  MatchResult[]    @relation("WinningOption")
+
+  @@index([marketId])
+  @@map("market_options")
+}
+
+model Bet {
+  id BigInt @id @default(autoincrement())
+
+  userId Int  @map("user_id")
+  user   User @relation(fields: [userId], references: [id])
+
+  matchId  BigInt @map("match_id")
+  marketId BigInt @map("market_id")
+  optionId BigInt @map("option_id")
+
+  betType BetType @default(SINGLE) @map("bet_type")
+
+  oddsLocked   Decimal  @map("odds_locked") @db.Decimal(10, 4)
+  amount       Decimal  @db.Decimal(18, 6)
+  potentialWin Decimal  @map("potential_win") @db.Decimal(18, 6)
+  profit       Decimal? @db.Decimal(18, 6)
+
+  status    BetStatus @default(PENDING)
+  settledAt DateTime? @map("settled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  match  Match        @relation(fields: [matchId], references: [id])
+  market Market       @relation(fields: [marketId], references: [id])
+  option MarketOption @relation(fields: [optionId], references: [id])
+
+  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(100)
+
+  @@index([userId])
+  @@index([matchId])
+  @@index([status])
+  @@index([optionId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("bets")
+}
+
+model MatchResult {
+  id              BigInt  @id @default(autoincrement())
+  matchId         BigInt  @unique
+  winningOptionId BigInt?
+  resultData      Json?
+
+  createdAt DateTime @default(now())
+
+  match         Match         @relation(fields: [matchId], references: [id])
+  winningOption MarketOption? @relation("WinningOption", fields: [winningOptionId], references: [id])
+
+  @@map("match_results")
+}
+
+model MatchLiability {
+  id       BigInt @id @default(autoincrement())
+  matchId  BigInt @map("match_id")
+  optionId BigInt @map("option_id")
+
+  totalAmount       Decimal @default(0) @map("total_amount") @db.Decimal(18, 6)
+  totalPotentialWin Decimal @default(0) @map("total_potential_win") @db.Decimal(18, 6)
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  option MarketOption @relation(fields: [optionId], references: [id])
+
+  @@unique([matchId, optionId])
+  @@map("match_liability")
+}
+
+model RiskConfig {
+  id Int @id @default(autoincrement())
+
+  maxBetAmount      Decimal? @db.Decimal(18, 6)
+  maxWinAmount      Decimal? @db.Decimal(18, 6)
+  maxMatchLiability Decimal? @db.Decimal(18, 6)
+  maxUserDailyBet   Decimal? @db.Decimal(18, 6)
+
+  createdAt DateTime @default(now())
+
+  @@map("risk_config")
+}
+
+model MarketAuditLog {
+  id        BigInt      @id @default(autoincrement())
+  marketId  BigInt
+  action    AuditAction
+  metadata  Json?
+  createdAt DateTime    @default(now())
+
+  market Market @relation(fields: [marketId], references: [id])
+
+  @@map("market_audit_logs")
+}
+
+model CrashRound {
+  id     Int     @id @default(autoincrement())
+  gameId BigInt?
+
+  game Game? @relation(fields: [gameId], references: [id])
+
+  crashPoint Decimal          @map("crash_point") @db.Decimal(10, 4)
+  status     CrashRoundStatus @default(WAITING)
+
+  serverSeed     String @map("server_seed") @db.VarChar(255)
+  serverSeedHash String @map("server_seed_hash") @db.VarChar(255)
+  clientSeed     String @map("client_seed") @db.VarChar(255)
+  nonce          Int
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  endedAt    DateTime? @map("ended_at")
+  revealedAt DateTime? @map("revealed_at")
+
+  bets CrashBet[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([gameId])
+  @@map("crash_rounds")
+}
+
+model CrashBet {
+  id BigInt @id @default(autoincrement())
+
+  userId  Int @map("user_id")
+  roundId Int @map("round_id")
+
+  amount Decimal @db.Decimal(18, 6)
+
+  autoCashout       Decimal? @map("auto_cashout") @db.Decimal(10, 4)
+  cashoutMultiplier Decimal? @map("cashout_multiplier") @db.Decimal(10, 4)
+  profit            Decimal? @db.Decimal(18, 6)
+
+  status CrashBetStatus @default(PENDING)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  settledAt DateTime? @map("settled_at")
+
+  user  User       @relation(fields: [userId], references: [id])
+  round CrashRound @relation(fields: [roundId], references: [id])
+
+  @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([userId])
+  @@index([status])
+  @@index([userId, createdAt])
+  @@map("crash_bets")
+}
+
+model DiceBet {
+  id BigInt @id @default(autoincrement())
+
+  userId Int
+  gameId BigInt?
+
+  amount Decimal @db.Decimal(18, 6)
+
+  target Decimal  @db.Decimal(5, 2)
+  roll   Decimal? @db.Decimal(5, 2)
+
+  multiplier Decimal? @db.Decimal(10, 4)
+  payout     Decimal? @db.Decimal(18, 6)
+
+  status CasinoBetStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game? @relation(fields: [gameId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([gameId])
+  @@index([userId, createdAt])
+  @@map("dice_bets")
+}
+
+model SlotSpin {
+  id BigInt @id @default(autoincrement())
+
+  userId Int
+  gameId BigInt?
+
+  betAmount Decimal @db.Decimal(18, 6)
+  result    Json
+
+  multiplier Decimal? @db.Decimal(10, 4)
+  payout     Decimal? @db.Decimal(18, 6)
+
+  status CasinoBetStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game? @relation(fields: [gameId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([gameId])
+  @@index([userId, createdAt])
+  @@map("slot_spins")
+}
+
+model GameConfig {
+  id Int @id @default(autoincrement())
+
+  gameType  GameType @unique
+  houseEdge Decimal  @db.Decimal(5, 4)
+
+  minBet Decimal? @db.Decimal(18, 6)
+  maxBet Decimal? @db.Decimal(18, 6)
+
+  createdAt DateTime @default(now())
+}
+
+model GameStats {
+  id Int @id @default(autoincrement())
+
+  gameType GameType @unique
+
+  totalWagered Decimal @default(0) @db.Decimal(20, 6)
+  totalPaid    Decimal @default(0) @db.Decimal(20, 6)
+
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    Int?
+  agentId   Int?
+  type      String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  agent User? @relation("AgentNotifications", fields: [agentId], references: [id])
+}
+
+model SupportTicket {
+  id        String         @id @default(cuid())
+  userId    String
+  subject   String
+  message   String
+  status    String         @default("OPEN")
+  createdAt DateTime       @default(now())
+  replies   SupportReply[]
+}
+
+model SupportReply {
+  id        String   @id @default(cuid())
+  ticketId  String
+  senderId  String
+  message   String
+  createdAt DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id])
+}

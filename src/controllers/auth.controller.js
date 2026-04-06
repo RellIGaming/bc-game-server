@@ -1,164 +1,413 @@
-import User from "../models/User.model.js";
-import Otp from "../models/Otp.js";
+import pool from "../config/db.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { randomBytes, createHash } from "crypto";
-import { sendMail } from "../config/mail.js";
-import BlacklistToken from "../models/BlacklistToken.js";
 import { generateToken } from "../utils/generateToken.js";
 
 /* ================= SIGN UP ================= */
+// export const signup = async (req, res) => {
+//   try {
+//     const { username, email, password, promoCode, role } = req.body;
+
+//     const exists = await pool.query(
+//       `SELECT * FROM users WHERE email = $1 OR username = $2`,
+//       [email, username]
+//     );
+
+//     if (exists.rows.length > 0)
+//       return res.status(400).json({ message: "User already exists" });
+
+//     let referredBy = null;
+
+//     if (promoCode) {
+//       const ref = await pool.query(
+//         "SELECT id FROM users WHERE username = $1",
+//         [promoCode]
+//       );
+//       if (ref.rows.length > 0) referredBy = ref.rows[0].id;
+//     }
+
+//     const hashed = await bcrypt.hash(password, 10);
+//     const userRole = role === "admin" ? "admin" : "user";
+
+//     const newUser = await pool.query(
+//       `INSERT INTO users 
+//       (username, email, password, role, referred_by)
+//       VALUES ($1, $2, $3, $4, $5)
+//       RETURNING *`,
+//       [username, email, hashed, userRole, referredBy]
+//     );
+
+//     const user = newUser.rows[0];
+
+//     res.status(201).json({
+//       token: generateToken(user.id),
+//       user,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
+/* ================= SIGN UP ================= */
 export const signup = async (req, res) => {
-  const { username, email, password, promoCode } = req.body;
+  const client = await pool.connect();
 
-  const exists = await User.findOne({ $or: [{ email }, { username }] });
-  if (exists) return res.status(400).json({ message: "User already exists" });
+  try {
+    const { username, email, password, promoCode, role } = req.body;
 
-  let referredBy = null;
-  if (promoCode) {
-    const ref = await User.findOne({ username: promoCode });
-    if (ref) referredBy = ref._id;
+    await client.query("BEGIN");
+
+    const exists = await client.query(
+      `SELECT * FROM users WHERE email = $1 OR username = $2`,
+      [email, username]
+    );
+
+    if (exists.rows.length > 0) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    let referredBy = null;
+
+    if (promoCode) {
+      const ref = await client.query(
+        "SELECT id FROM users WHERE username = $1",
+        [promoCode]
+      );
+
+      if (ref.rows.length > 0) {
+        referredBy = ref.rows[0].id;
+      }
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+    const userRole =
+      role === "admin" ? "admin" :
+        role === "agent" ? "agent" :
+          "user";
+
+    /* ================= CREATE USER ================= */
+
+    const newUser = await client.query(
+      `INSERT INTO users 
+      (username, email, password, role, referred_by)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *`,
+      [username, email, hashed, userRole, referredBy]
+    );
+
+    const user = newUser.rows[0];
+
+    /* ================= CREATE MULTI WALLETS ================= */
+
+    const currencies = ["INR", "BTC", "USDT"];
+
+    for (const currency of currencies) {
+      await client.query(
+        `INSERT INTO wallets (user_id, currency, balance)
+         VALUES ($1, $2, 0)`,
+        [user.id, currency]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    const walletsResult = await client.query(
+      `SELECT currency, balance, bonus FROM wallets WHERE user_id = $1`,
+      [user.id]
+    );
+
+    const wallets = walletsResult.rows;
+
+    res.status(201).json({
+      token: generateToken(user.id),
+      user,
+      wallets
+    });
+
+  } catch (error) {
+
+    await client.query("ROLLBACK");
+
+    res.status(500).json({
+      message: error.message
+    });
+
+  } finally {
+    client.release();
   }
-
-  const hashed = await bcrypt.hash(password, 10);
-
-  const user = await User.create({
-    username,
-    email,
-    password: hashed,
-    referredBy,
-  });
-
-  res.status(201).json({
-    token: generateToken(user._id),
-    user,
-  });
 };
-
-/* ================= SIGN IN (PASSWORD) ================= */
+/* ================= SIGN IN ================= */
 export const signin = async (req, res) => {
-  const { identifier, password } = req.body;
+  try {
+    const { identifier, password } = req.body;
 
-  const user = await User.findOne({
-    $or: [{ email: identifier }, { username: identifier }],
-  });
+    const result = await pool.query(
+      `SELECT * FROM users 
+       WHERE email = $1 OR username = $1 OR phone = $1`,
+      [identifier]
+    );
 
-  if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    if (result.rows.length === 0)
+      return res.status(400).json({ message: "Invalid credentials" });
 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ message: "Invalid credentials" });
+    const user = result.rows[0];
 
-  res.json({
-    token: generateToken(user._id),
-    user,
-  });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match)
+      return res.status(400).json({ message: "Invalid credentials" });
+
+    res.json({
+      token: generateToken(user.id),
+      user,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+export const signinByRole = (role) => async (req, res) => {
+  try {
+    const { identifier, password } = req.body;
+
+    const result = await pool.query(
+      `SELECT * FROM users 
+       WHERE (email = $1 OR username = $1 OR phone = $1)
+       AND role = $2`,
+      [identifier, role]
+    );
+
+    if (result.rows.length === 0)
+      return res.status(400).json({ message: `${role} not found` });
+
+    const user = result.rows[0];
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match)
+      return res.status(400).json({ message: "Invalid credentials" });
+
+    res.json({
+      token: generateToken(user.id),
+      user,
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 /* ================= SEND OTP ================= */
 export const sendOtp = async (req, res) => {
-  const { identifier } = req.body; // email or phone
+  try {
+    const { identifier } = req.body;
 
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  await Otp.deleteMany({ identifier });
+    await pool.query("DELETE FROM otps WHERE identifier = $1", [identifier]);
 
-  await Otp.create({
-    identifier,
-    otp,
-    expiresAt: Date.now() + 5 * 60 * 1000,
-  });
+    await pool.query(
+      `INSERT INTO otps (identifier, otp, expires_at)
+       VALUES ($1, $2, $3)`,
+      [identifier, otp, expiresAt]
+    );
 
-  if (identifier.includes("@")) {
-    await sendMail(identifier, "OTP Login", `Your OTP is ${otp}`);
-  } else {
-    console.log("📱 SMS OTP:", otp);
+    console.log("OTP:", otp); // Replace with email/SMS logic
+
+    res.json({ message: "OTP sent successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
-
-  res.json({ message: "OTP sent successfully" });
 };
 
 /* ================= OTP LOGIN ================= */
 export const otpLogin = async (req, res) => {
-  const { identifier, otp } = req.body;
+  try {
+    const { identifier, otp } = req.body;
 
-  const record = await Otp.findOne({ identifier, otp });
-  if (!record || record.expiresAt < Date.now())
-    return res.status(400).json({ message: "Invalid or expired OTP" });
+    const record = await pool.query(
+      `SELECT * FROM otps 
+       WHERE identifier = $1 AND otp = $2`,
+      [identifier, otp]
+    );
 
-  let user = await User.findOne({
-    $or: [{ email: identifier }, { phone: identifier }],
-  });
+    if (
+      record.rows.length === 0 ||
+      new Date(record.rows[0].expires_at) < new Date()
+    )
+      return res.status(400).json({ message: "Invalid or expired OTP" });
 
-  if (!user) {
-    user = await User.create({
-      email: identifier.includes("@") ? identifier : undefined,
-      phone: identifier.includes("@") ? undefined : identifier,
-      username: `user_${Date.now()}`,
+    let userResult = await pool.query(
+      `SELECT * FROM users 
+       WHERE email = $1 OR phone = $1`,
+      [identifier]
+    );
+
+    let user;
+
+    if (userResult.rows.length === 0) {
+      const username = `user_${Date.now()}`;
+
+      const newUser = await pool.query(
+        `INSERT INTO users (username, email, phone)
+         VALUES ($1, $2, $3)
+         RETURNING *`,
+        [
+          username,
+          identifier.includes("@") ? identifier : null,
+          identifier.includes("@") ? null : identifier,
+        ]
+      );
+
+      user = newUser.rows[0];
+    } else {
+      user = userResult.rows[0];
+    }
+
+    await pool.query("DELETE FROM otps WHERE identifier = $1", [identifier]);
+
+    res.json({
+      token: generateToken(user.id),
+      user,
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
-
-  await Otp.deleteMany({ identifier });
-
-  res.json({
-    token: generateToken(user._id),
-    user,
-  });
 };
 
 /* ================= FORGOT PASSWORD ================= */
 export const forgotPassword = async (req, res) => {
-  const { email } = req.body;
+  try {
+    const { email } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user) return res.status(404).json({ message: "User not found" });
+    const result = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
 
-  const resetToken = randomBytes(32).toString("hex");
+    if (result.rows.length === 0)
+      return res.status(404).json({ message: "User not found" });
 
-  user.resetPasswordToken = createHash("sha256").update(resetToken).digest("hex");
-  user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
+    const resetToken = randomBytes(32).toString("hex");
+    const hashed = createHash("sha256").update(resetToken).digest("hex");
+    const expireTime = new Date(Date.now() + 15 * 60 * 1000);
 
-  await user.save();
+    await pool.query(
+      `UPDATE users
+       SET reset_password_token = $1,
+           reset_password_expire = $2
+       WHERE email = $3`,
+      [hashed, expireTime, email]
+    );
 
-  await sendMail(email, "Reset Password", `Token: ${resetToken}`);
+    console.log("Reset Token:", resetToken);
 
-  res.json({ message: "Reset link sent" });
+    res.json({ message: "Reset link sent" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 /* ================= RESET PASSWORD ================= */
 export const resetPassword = async (req, res) => {
-  const hashed = createHash("sha256").update(req.params.token).digest("hex");
+  try {
+    const hashed = createHash("sha256")
+      .update(req.params.token)
+      .digest("hex");
 
-  const user = await User.findOne({
-    resetPasswordToken: hashed,
-    resetPasswordExpire: { $gt: Date.now() },
-  });
+    const result = await pool.query(
+      `SELECT * FROM users
+       WHERE reset_password_token = $1
+       AND reset_password_expire > NOW()`,
+      [hashed]
+    );
 
-  if (!user)
-    return res.status(400).json({ message: "Invalid or expired token" });
+    if (result.rows.length === 0)
+      return res.status(400).json({ message: "Invalid or expired token" });
 
-  user.password = await bcrypt.hash(req.body.password, 10);
-  user.resetPasswordToken = undefined;
-  user.resetPasswordExpire = undefined;
+    const newPassword = await bcrypt.hash(req.body.password, 10);
 
-  await user.save();
-  res.json({ message: "Password reset successful" });
-};
+    await pool.query(
+      `UPDATE users
+       SET password = $1,
+           reset_password_token = NULL,
+           reset_password_expire = NULL
+       WHERE id = $2`,
+      [newPassword, result.rows[0].id]
+    );
 
-/* ================= PROFILE ================= */
-export const getProfile = async (req, res) => {
-  res.json(req.user);
-};
-
-export const updateProfile = async (req, res) => {
-  const user = await User.findByIdAndUpdate(req.user._id, req.body, {
-    new: true,
-  }).select("-password");
-  res.json(user);
+    res.json({ message: "Password reset successful" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 /* ================= LOGOUT ================= */
 export const logout = async (req, res) => {
-  const token = req.headers.authorization.split(" ")[1];
-  await BlacklistToken.create({ token });
-  res.json({ message: "Logged out successfully" });
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+
+    await pool.query(
+      `INSERT INTO blacklist_tokens (token)
+       VALUES ($1)`,
+      [token]
+    );
+
+    res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ================= PROFILE ================= */
+export const getProfile = async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    // Include profileImage
+    res.json({
+      id: req.user.id,
+      username: req.user.username,
+      email: req.user.email,
+      phone: req.user.phone,
+      role: req.user.role,
+      balance: req.user.balance,
+      profileImage: req.user.profile_image
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    const { username, email, phone } = req.body;
+    let profileImage;
+
+    // Check if file was uploaded
+    if (req.file) {
+      profileImage = `/images/${req.file.filename}`;
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET username = COALESCE($1, username),
+           email = COALESCE($2, email),
+           phone = COALESCE($3, phone),
+           profile_image = COALESCE($4, profile_image),
+           updated_at = NOW()
+       WHERE id = $5
+       RETURNING id, username, email, phone, role, balance, profile_image`,
+      [username, email, phone, profileImage, req.user.id]
+    );
+const user = result.rows[0];
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      balance: user.balance,
+      profileImage: user.profile_image,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };

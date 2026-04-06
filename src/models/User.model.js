@@ -1,26 +1,38 @@
-// models/User.js
-import mongoose from "mongoose";
+import pool from "../config/db.js";
 
-const userSchema = new mongoose.Schema({
-  username: { type: String, unique: true },
-  email: { type: String, unique: true, sparse: true },
-  phone: { type: String, unique: true, sparse: true },
+export const createUser = async (data) => {
+  const {
+    username,
+    email,
+    phone,
+    password,
+    role,
+    referredBy,
+  } = data;
 
-  password: String,
+  const result = await pool.query(
+    `INSERT INTO users 
+     (username, email, phone, password, role, referred_by)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [username, email, phone, password, role || "user", referredBy || null]
+  );
 
-  role: {
-    type: String,
-    enum: ["user", "affiliate", "agent", "admin"],
-    default: "user",
-  },
+  return result.rows[0];
+};
 
-  balance: { type: Number, default: 0 },
+export const findUserByEmail = async (email) => {
+  const result = await pool.query(
+    "SELECT * FROM users WHERE email = $1",
+    [email]
+  );
+  return result.rows[0];
+};
 
-  referredBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-
-  resetPasswordToken: String,
-  resetPasswordExpire: Date,
-
-}, { timestamps: true });
-
-export default mongoose.model("User", userSchema);
+export const findUserById = async (id) => {
+  const result = await pool.query(
+    "SELECT * FROM users WHERE id = $1",
+    [id]
+  );
+  return result.rows[0];
+};
