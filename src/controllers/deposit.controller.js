@@ -1,14 +1,82 @@
 import prisma from "../prisma.js";
+import { convertToBDT } from "../utils/convertCurrency.js";
 import { sendAgentNotification } from "../utils/socket.js";
 import { nanoid } from "nanoid";
 
+
+// export const requestDeposit = async (req, res) => {
+//   try {
+
+//     const { currency, amount, method, network } = req.body;
+//     const allowedCurrencies = ["BDT", "INR", "PKR", "USD"];
+
+//     if (!allowedCurrencies.includes(currency)) {
+//       return res.status(400).json({ message: "Invalid currency" });
+//     }
+
+//     const amountBDT = convertToBDT(amount, currency);
+
+//     if (!currency || !amount || !method)
+//       return res.status(400).json({ message: "Missing fields" });
+
+//     const deposit = await prisma.deposit.create({
+//       data: {
+//         orderId: "ORD-" + nanoid(10),
+//         userId: req.user.id,
+//         txId: "TXN-" + nanoid(10),
+//         currency,
+//         amount,
+//         amountBDT,
+//         method,
+//         network,
+//         status: "PENDING"
+//       }
+//     });
+//     const agents = await prisma.user.findMany({
+//       where: { role: "agent" }
+//     });
+
+//     for (const agent of agents) {
+//       /* ✅ 1. SAVE TO DB */
+//       const notification = await prisma.notification.create({
+//         data: {
+//           agentId: agent.id, // ⚠️ later make dynamic
+//           type: "deposit",
+//           message: `New deposit request ৳${amount}`,
+//           read: false
+//         }
+//       });
+//       /* ✅ SEND NOTIFICATION TO AGENT */
+//       /* ✅ 2. SEND SOCKET */
+//       sendAgentNotification(agent.id, notification);
+//     }
+//     res.json({
+//       message: "Deposit request created",
+//       deposit
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+
 export const requestDeposit = async (req, res) => {
   try {
-
     const { currency, amount, method, network } = req.body;
 
-    if (!currency || !amount || !method)
+   const allowedCurrencies = ["BDT", "INR", "PKR", "USD"];
+
+    if (!allowedCurrencies.includes(currency)) {
+      return res.status(400).json({ message: "Invalid currency" });
+    }
+    
+    if (!amount || !method) {
       return res.status(400).json({ message: "Missing fields" });
+    }
+
+    // ✅ CONVERT TO BDT
+   const amountBDT = convertToBDT(amount, currency);
 
     const deposit = await prisma.deposit.create({
       data: {
@@ -17,29 +85,33 @@ export const requestDeposit = async (req, res) => {
         txId: "TXN-" + nanoid(10),
         currency,
         amount,
+        amountBDT,
+        // originalCurrency: currency,
+        // originalAmount: amount,
+
         method,
         network,
         status: "PENDING"
       }
     });
+
     const agents = await prisma.user.findMany({
       where: { role: "agent" }
     });
 
     for (const agent of agents) {
-      /* ✅ 1. SAVE TO DB */
       const notification = await prisma.notification.create({
         data: {
-          agentId: agent.id, // ⚠️ later make dynamic
+          agentId: agent.id,
           type: "deposit",
-          message: `New deposit request ৳${amount}`,
+          message: `New deposit request ৳${amountBDT}`,
           read: false
         }
       });
-      /* ✅ SEND NOTIFICATION TO AGENT */
-      /* ✅ 2. SEND SOCKET */
+
       sendAgentNotification(agent.id, notification);
     }
+
     res.json({
       message: "Deposit request created",
       deposit

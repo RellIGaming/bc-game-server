@@ -1,6 +1,8 @@
 import prisma from "../../prisma.js";
+import { convertToBDT } from "../../utils/convertCurrency.js";
 import { sendUserNotification } from "../../utils/socket.js";
 
+//get wallet balance from admin
 export const getAgentWallet = async (req, res) => {
     try {
         const wallets = await prisma.wallet.findMany({
@@ -8,6 +10,7 @@ export const getAgentWallet = async (req, res) => {
         });
 
         res.json(wallets);
+        console.log("agent wallet", wallets)
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -64,7 +67,7 @@ export const getWithdrawQueue = async (req, res) => {
 };
 
 export const approveDeposit = async (req, res) => {
-    // console.log("USER:", req.user)
+
     try {
 
         const { depositId } = req.body;
@@ -84,33 +87,34 @@ export const approveDeposit = async (req, res) => {
         if (req.user.role !== "agent") {
             return res.status(403).json({ message: "Only agent can approve" });
         }
+ const amount = Number(deposit.amountBDT);
         await prisma.$transaction(async (tx) => {
             const agentWallet = await tx.wallet.findUnique({
                 where: {
                     userId_currency: {
-                        userId: req.user.id, // agent id
-                        currency: deposit.currency
+                        userId: req.user.id,
+                        currency: "BDT"
                     }
                 }
             });
 
             if (!agentWallet) {
-                throw new Error("Agent wallet not found");
+                throw new Error(`Agent wallet not found for ${deposit.currency}`)
             }
-
-            if (Number(agentWallet.balance) < Number(deposit.amount)) {
+            if (Number(agentWallet.balance) < amount) {
                 throw new Error("Insufficient agent balance");
             }
+           
             await tx.wallet.update({
                 where: {
                     userId_currency: {
                         userId: req.user.id,
-                        currency: deposit.currency
+                        currency: "BDT"
                     }
                 },
                 data: {
                     balance: {
-                        decrement: deposit.amount
+                        decrement: amount
                     }
                 }
             });
@@ -118,24 +122,25 @@ export const approveDeposit = async (req, res) => {
                 where: {
                     userId_currency: {
                         userId: deposit.userId,
-                        currency: deposit.currency
+                       currency: "BDT"
                     }
                 },
                 update: {
-                    balance: { increment: deposit.amount }
+                    balance: { increment: amount }
                 },
                 create: {
                     userId: deposit.userId,
-                    currency: deposit.currency,
-                    balance: deposit.amount
+                    currency: "BDT",
+                    balance: amount
                 }
             });
 
             await tx.walletTransaction.create({
                 data: {
                     userId: deposit.userId,
-                    currency: deposit.currency,
-                    amount: deposit.amount,
+                    // currency: deposit.currency,
+                    currency: "BDT",
+                    amount: amount,
                     type: "DEPOSIT",
                     status: "COMPLETED",
                     referenceId: deposit.id.toString(),
@@ -164,11 +169,18 @@ export const approveDeposit = async (req, res) => {
         sendUserNotification(deposit.userId, {
             type: "deposit-approved",
             amount: deposit.amount,
-            currency: deposit.currency,
+            // currency: deposit.currency,
+            currency: "BDT",
             message: `Your deposit of ৳${deposit.amount} has been approved`
         });
 
-        res.json({ message: "Deposit approved" });
+        res.json({
+            message: "Deposit approved",
+            currency: "BDT",
+            amount: amount,
+            userId: deposit.userId,
+            txId: deposit.id
+        });
 
     } catch (err) {
         console.error("APPROVE ERROR:", err);
@@ -223,7 +235,6 @@ export const rejectDeposit = async (req, res) => {
     }
 };
 
-
 export const approveWithdraw = async (req, res) => {
 
     try {
@@ -243,19 +254,24 @@ export const approveWithdraw = async (req, res) => {
                 where: {
                     userId_currency: {
                         userId: withdraw.userId,
-                        currency: withdraw.currency
+                        // currency: withdraw.currency
+                        currency: "BDT"
                     }
                 }
             });
 
-            if (!wallet || wallet.balance < withdraw.amount)
+            if (!wallet || Number(wallet.balance) < Number(withdraw.amount)) {
                 throw new Error("Insufficient balance");
-
+            }
+            if (withdraw.status !== "PENDING") {
+                return res.status(400).json({ message: "Already processed" });
+            }
             await tx.wallet.update({
                 where: {
                     userId_currency: {
                         userId: withdraw.userId,
-                        currency: withdraw.currency
+                        // currency: withdraw.currency
+                        currency: "BDT"
                     }
                 },
                 data: {
@@ -266,7 +282,8 @@ export const approveWithdraw = async (req, res) => {
             await tx.walletTransaction.create({
                 data: {
                     userId: withdraw.userId,
-                    currency: withdraw.currency,
+                    // currency: withdraw.currency,
+                    currency: "BDT",
                     amount: withdraw.amount,
                     type: "WITHDRAW",
                     status: "COMPLETED",
@@ -296,7 +313,8 @@ export const approveWithdraw = async (req, res) => {
         sendUserNotification(withdraw.userId, {
             type: "withdraw-approved",
             amount: withdraw.amount,
-            currency: withdraw.currency,
+            // currency: withdraw.currency,
+            currency: "BDT",
             message: `Withdraw request of ৳${withdraw.amount} approved`
         });
 

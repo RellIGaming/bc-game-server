@@ -2,6 +2,29 @@ import prisma from "../../prisma.js";
 import { updateBalance } from "../../service/wallet.service.js";
 
 
+export const setExchangeRate = async (req, res) => {
+  try {
+    const { currency, rate } = req.body;
+
+    if (!currency || !rate) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const data = await prisma.exchangeRate.upsert({
+      where: { currency },
+      update: { rate },
+      create: { currency, rate }
+    });
+
+    res.json({
+      message: "Rate updated",
+      data
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
 // Admin can approve if agent inactive.
 
 // GET /api/admin/transactions
@@ -11,19 +34,50 @@ import { updateBalance } from "../../service/wallet.service.js";
 
 // POST /api/admin/withdraw/approve
 // POST /api/admin/set-agent-wallet
+
+// export const setAgentWallet = async (req, res) => {
+//   try {
+//     const { agentId, amount } = req.body;
+
+//     if (!agentId || amount == null) {
+//       return res.status(400).json({ message: "Missing fields" });
+//     }
+
+//     const wallet = await prisma.wallet.upsert({
+//       where: {
+//         userId_currency: {
+//           userId: agentId,
+//           currency: "BDT" // ✅ FIXED
+//         }
+//       },
+//       update: {
+//         balance: amount
+//       },
+//       create: {
+//         userId: agentId,
+//         currency: "BDT", // ✅ FIXED
+//         balance: amount
+//       }
+//     });
+
+//     res.json({
+//       message: "Agent wallet updated (BDT)",
+//       wallet
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
 export const setAgentWallet = async (req, res) => {
   try {
-    const { agentId, currency, amount } = req.body;
-
-    if (!agentId || !currency || amount == null) {
-      return res.status(400).json({ message: "Missing fields" });
-    }
+    const { agentId, amount } = req.body;
 
     const wallet = await prisma.wallet.upsert({
       where: {
         userId_currency: {
           userId: agentId,
-          currency
+          currency: "BDT"
         }
       },
       update: {
@@ -31,13 +85,13 @@ export const setAgentWallet = async (req, res) => {
       },
       create: {
         userId: agentId,
-        currency,
+        currency: "BDT",
         balance: amount
       }
     });
 
     res.json({
-      message: "Agent wallet updated",
+      message: "Agent wallet updated (BDT)",
       wallet
     });
 
@@ -45,7 +99,6 @@ export const setAgentWallet = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 /* ================= ALL DEPOSITS ================= */
 
 
@@ -59,7 +112,34 @@ export const getDeposits = async (req, res) => {
 };
 
 
-/* ================= APPROVE DEPOSIT ================= */
+/* ================= APPROVE DEPOSIT by admin ================= */
+
+// export const approveDeposit = async (req, res) => {
+
+//   const { depositId } = req.body;
+
+//   const deposit = await prisma.deposit.findUnique({
+//     where: { id: depositId }
+//   });
+// if (deposit.agentId) {
+//   return res.status(400).json({ message: "Already handled by agent" });
+// }
+//   await updateBalance({
+//     userId: deposit.userId,
+//     amount: deposit.amount,
+//     currency: "BDT",
+//     type: "DEPOSIT",
+//     referenceId: deposit.id.toString(),
+//     referenceType: "DEPOSIT"
+//   });
+
+//   await prisma.deposit.update({
+//     where: { id: depositId },
+//     data: { status: "APPROVED" }
+//   });
+
+//   res.json({ success: true });
+// };
 
 export const approveDeposit = async (req, res) => {
 
@@ -69,10 +149,16 @@ export const approveDeposit = async (req, res) => {
     where: { id: depositId }
   });
 
+  if (deposit.agentId) {
+    return res.status(400).json({ message: "Handled by agent" });
+  }
+
+  const amount = Number(deposit.amountBDT); // ✅ FIX
+
   await updateBalance({
     userId: deposit.userId,
-    amount: deposit.amount,
-    currency:deposit.currency,
+    amount,
+    currency: "BDT",
     type: "DEPOSIT",
     referenceId: deposit.id.toString(),
     referenceType: "DEPOSIT"
@@ -85,9 +171,7 @@ export const approveDeposit = async (req, res) => {
 
   res.json({ success: true });
 };
-
-
-/* ================= APPROVE WITHDRAW ================= */
+/* ================= APPROVE WITHDRAW by admin ================= */
 
 export const approveWithdraw = async (req, res) => {
 
@@ -96,11 +180,11 @@ export const approveWithdraw = async (req, res) => {
   const withdraw = await prisma.withdrawal.findUnique({
     where: { id: withdrawId }
   });
-
+const amountBDT = convertToBDT(amount, currency);
   await updateBalance({
     userId: withdraw.userId,
-    amount: withdraw.amount,
-    currency:withdraw.currency,
+    amount: amountBDT,
+    currency: "BDT",
     type: "WITHDRAW",
     referenceId: withdraw.id.toString(),
     referenceType: "WITHDRAW"

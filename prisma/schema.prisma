@@ -167,6 +167,11 @@ isActive  Boolean @default(true)
   @@index([role])
   @@map("users")
 }
+model ExchangeRate {
+  id       Int     @id @default(autoincrement())
+  currency String  @unique
+  rate     Float   // to BDT
+}
 
 model Game {
   id    BigInt @id @default(autoincrement())
@@ -231,7 +236,7 @@ model Deposit {
   network  String?
 
   amount Decimal @db.Decimal(38, 2)
-
+  amountBDT Decimal @db.Decimal(38, 2)
   txHash String?
   txId   String?
   proof  String?
