@@ -186,7 +186,21 @@ export const createTestReferralReward = async (req, res) => {
     try {
         const userId = req.user.id;
         const { amount, referredUserId } = req.body;
+        if (!referredUserId) {
+            return res.status(400).json({ message: "referredUserId required" });
+        }
+        const exists = await prisma.walletTransaction.findFirst({
+            where: {
+                reference_id: referredUserId,
+                type: "REFERRAL_REWARD"
+            }
+        });
 
+        if (exists) {
+            return res.status(400).json({
+                message: "Reward already given"
+            });
+        }
         const tx = await prisma.walletTransaction.create({
             data: {
                 userId,
@@ -204,6 +218,193 @@ export const createTestReferralReward = async (req, res) => {
             message: "Test referral reward added",
             tx
         });
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getCommissionByFriends = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // 1. Get referred users
+        const friends = await prisma.user.findMany({
+            where: { referredBy: userId },
+            select: {
+                id: true,
+                username: true,
+                createdAt: true
+            }
+        });
+
+        if (friends.length === 0) {
+            return res.json([]);
+        }
+
+        const friendIds = friends.map(f => f.id);
+
+        // 2. Get their deposits (last 7 days)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const deposits = await prisma.walletTransaction.groupBy({
+            by: ["userId"],
+            where: {
+                userId: { in: friendIds },
+                type: "DEPOSIT",
+                createdAt: { gte: sevenDaysAgo }
+            },
+            _sum: {
+                amount: true
+            }
+        });
+
+        // 3. Get commission earned by you from them
+        const commissions = await prisma.walletTransaction.groupBy({
+            by: ["referenceId"],
+            where: {
+                userId,
+                referenceType: "REFERRAL"
+            },
+            _sum: {
+                amount: true
+            }
+        });
+
+        // 4. Merge data
+        const result = friends.map(friend => {
+            const deposit = deposits.find(d => d.userId === friend.id);
+            const commission = commissions.find(
+                c => Number(c.referenceId) === friend.id
+            );
+
+            return {
+                userId: friend.id,
+                username: friend.username,
+                commissionRate: "25%", // static for now
+                totalDeposit7d: Number(deposit?._sum.amount || 0),
+                registrationDate: friend.createdAt,
+                totalCommission: Number(commission?._sum.amount || 0)
+            };
+        });
+
+        res.json(result);
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getRewardsSummary = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const referral = await prisma.walletTransaction.aggregate({
+            _sum: { amount: true },
+            where: {
+                userId,
+                referenceType: "REFERRAL"
+            }
+        });
+
+        const commission = await prisma.walletTransaction.aggregate({
+            _sum: { amount: true },
+            where: {
+                userId,
+                referenceType: "REFERRAL",
+                type: "DEPOSIT"
+            }
+        });
+
+        res.json({
+            availableCommission: Number(commission._sum.amount || 0),
+            totalCommission: Number(commission._sum.amount || 0),
+            availableReferral: Number(referral._sum.amount || 0),
+            totalReferral: Number(referral._sum.amount || 0),
+            lockedRewards: 0
+        });
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+export const getCommissionByCurrency = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const data = await prisma.walletTransaction.groupBy({
+            by: ["currency"],
+            where: {
+                userId,
+                referenceType: "REFERRAL"
+            },
+            _sum: {
+                amount: true
+            }
+        });
+
+        res.json(
+            data.map(d => ({
+                currency: d.currency,
+                totalCommission: Number(d._sum.amount || 0)
+            }))
+        );
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getLevelUpRewards = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const friends = await prisma.user.findMany({
+            where: { referredBy: userId },
+            select: {
+                id: true,
+                username: true,
+                createdAt: true,
+                referralCode: true
+            }
+        });
+
+        // fake VIP level for now
+        const result = friends.map(f => ({
+            username: f.username,
+            registrationDate: f.createdAt,
+            vipLevel: Math.floor(Math.random() * 10),
+            code: f.referralCode,
+            earned: 100 // static for now
+        }));
+
+        res.json(result);
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getRewardHistory = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { type } = req.query; // COMMISSION / REFERRAL
+
+        const data = await prisma.walletTransaction.findMany({
+            where: {
+                userId,
+                referenceType: "REFERRAL"
+            },
+            orderBy: { createdAt: "desc" },
+            take: 50
+        });
+
+        res.json(data.map(tx => ({
+            amount: tx.amount,
+            time: tx.createdAt,
+            status: tx.status
+        })));
 
     } catch (err) {
         res.status(500).json({ message: err.message });

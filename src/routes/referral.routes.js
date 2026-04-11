@@ -1,5 +1,12 @@
 import express from "express";
-import { getReferralFriends ,getReferralEarnings,getReferralDashboard, createTestReferralReward} from "../controllers/referral.controller.js";
+import { getReferralFriends ,getReferralEarnings,getReferralDashboard, 
+    createTestReferralReward,
+getRewardsSummary,
+getCommissionByFriends,
+getCommissionByCurrency,
+getLevelUpRewards,
+getRewardHistory
+} from "../controllers/referral.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
@@ -9,4 +16,9 @@ router.get("/friends", protect, getReferralFriends);
 router.get("/earnings", protect, getReferralEarnings);
 router.get("/dashboard", protect, getReferralDashboard);
 router.post("/test-reward", protect, createTestReferralReward);
+router.get("/rewards/summary", protect, getRewardsSummary);
+router.get("/rewards/friends", protect, getCommissionByFriends);
+router.get("/rewards/currency", protect, getCommissionByCurrency);
+router.get("/rewards/level", protect, getLevelUpRewards);
+router.get("/rewards/history", protect, getRewardHistory);
 export default router;

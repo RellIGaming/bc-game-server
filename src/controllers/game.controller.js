@@ -31,7 +31,7 @@ export const createGame = async (req, res) => {
     const { name, slug, multiplier, players, category, image } = req.body;
 
     const imageUrl = req.file
-      ? `http://localhost:5000/images/${req.file.filename}`
+      ? `https://bc-game-server.onrender.com/images/${req.file.filename}`
       : image || null;
 
     if (!imageUrl) {

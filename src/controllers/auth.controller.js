@@ -195,7 +195,7 @@ export const signup = async (req, res) => {
 export const signin = async (req, res) => {
   try {
     const { identifier, password } = req.body;
-
+ console.log("BODY:", req.body);
     const result = await pool.query(
       `SELECT * FROM users 
        WHERE email = $1 OR username = $1 OR phone = $1`,
