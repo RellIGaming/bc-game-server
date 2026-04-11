@@ -2,34 +2,48 @@ import pool from "../config/db.js";
 import bcrypt from "bcryptjs";
 import { randomBytes, createHash } from "crypto";
 import { generateToken } from "../utils/generateToken.js";
+import { nanoid } from "nanoid";
 
 /* ================= SIGN UP ================= */
 // export const signup = async (req, res) => {
+//   const client = await pool.connect();
+
 //   try {
 //     const { username, email, password, promoCode, role } = req.body;
 
-//     const exists = await pool.query(
+//     await client.query("BEGIN");
+
+//     const exists = await client.query(
 //       `SELECT * FROM users WHERE email = $1 OR username = $2`,
 //       [email, username]
 //     );
 
-//     if (exists.rows.length > 0)
+//     if (exists.rows.length > 0) {
 //       return res.status(400).json({ message: "User already exists" });
+//     }
 
 //     let referredBy = null;
 
 //     if (promoCode) {
-//       const ref = await pool.query(
+//       const ref = await client.query(
 //         "SELECT id FROM users WHERE username = $1",
 //         [promoCode]
 //       );
-//       if (ref.rows.length > 0) referredBy = ref.rows[0].id;
+
+//       if (ref.rows.length > 0) {
+//         referredBy = ref.rows[0].id;
+//       }
 //     }
 
 //     const hashed = await bcrypt.hash(password, 10);
-//     const userRole = role === "admin" ? "admin" : "user";
+//     const userRole =
+//       role === "admin" ? "admin" :
+//         role === "agent" ? "agent" :
+//           "user";
 
-//     const newUser = await pool.query(
+//     /* ================= CREATE USER ================= */
+
+//     const newUser = await client.query(
 //       `INSERT INTO users 
 //       (username, email, password, role, referred_by)
 //       VALUES ($1, $2, $3, $4, $5)
@@ -39,16 +53,46 @@ import { generateToken } from "../utils/generateToken.js";
 
 //     const user = newUser.rows[0];
 
+//     /* ================= CREATE MULTI WALLETS ================= */
+
+//     const currencies = ["INR", "BDT","PKR" ,"USD"];
+
+//     for (const currency of currencies) {
+//       await client.query(
+//         `INSERT INTO wallets (user_id, currency, balance)
+//          VALUES ($1, $2, 0)`,
+//         [user.id, currency]
+//       );
+//     }
+
+//     await client.query("COMMIT");
+
+//     const walletsResult = await client.query(
+//       `SELECT currency, balance, bonus FROM wallets WHERE user_id = $1`,
+//       [user.id]
+//     );
+
+//     const wallets = walletsResult.rows;
+
 //     res.status(201).json({
 //       token: generateToken(user.id),
 //       user,
+//       wallets
 //     });
+
 //   } catch (error) {
-//     res.status(500).json({ message: error.message });
+
+//     await client.query("ROLLBACK");
+
+//     res.status(500).json({
+//       message: error.message
+//     });
+
+//   } finally {
+//     client.release();
 //   }
 // };
 
-/* ================= SIGN UP ================= */
 export const signup = async (req, res) => {
   const client = await pool.connect();
 
@@ -66,12 +110,14 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: "User already exists" });
     }
 
+    /* ================= REFERRAL LOGIC ================= */
+
     let referredBy = null;
 
     if (promoCode) {
       const ref = await client.query(
-        "SELECT id FROM users WHERE username = $1",
-        [promoCode]
+        "SELECT id FROM users WHERE referral_code = $1",
+        [promoCode] // ✅ FIXED
       );
 
       if (ref.rows.length > 0) {
@@ -79,27 +125,36 @@ export const signup = async (req, res) => {
       }
     }
 
+    /* ================= HASH PASSWORD ================= */
+
     const hashed = await bcrypt.hash(password, 10);
+
     const userRole =
-      role === "admin" ? "admin" :
-        role === "agent" ? "agent" :
-          "user";
+      role === "admin"
+        ? "admin"
+        : role === "agent"
+          ? "agent"
+          : "user";
+
+    /* ================= GENERATE REFERRAL CODE ================= */
+
+    const referralCode = nanoid(10); // ✅ NEW
 
     /* ================= CREATE USER ================= */
 
     const newUser = await client.query(
       `INSERT INTO users 
-      (username, email, password, role, referred_by)
-      VALUES ($1, $2, $3, $4, $5)
+      (username, email, password, role, referred_by, referral_code)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *`,
-      [username, email, hashed, userRole, referredBy]
+      [username, email, hashed, userRole, referredBy, referralCode]
     );
 
     const user = newUser.rows[0];
 
-    /* ================= CREATE MULTI WALLETS ================= */
+    /* ================= CREATE WALLETS ================= */
 
-    const currencies = ["INR", "BTC", "USDT"];
+    const currencies = ["INR", "BDT", "USD", "PKR"];
 
     for (const currency of currencies) {
       await client.query(
@@ -116,16 +171,15 @@ export const signup = async (req, res) => {
       [user.id]
     );
 
-    const wallets = walletsResult.rows;
-
     res.status(201).json({
       token: generateToken(user.id),
       user,
-      wallets
+      wallets: walletsResult.rows,
+      referralCode: user.referral_code, // ✅ return it
+      referralLink: `https://bc-game-client.onrender.com/i-${user.referral_code}` // ✅ ready for frontend
     });
 
   } catch (error) {
-
     await client.query("ROLLBACK");
 
     res.status(500).json({
@@ -136,6 +190,7 @@ export const signup = async (req, res) => {
     client.release();
   }
 };
+
 /* ================= SIGN IN ================= */
 export const signin = async (req, res) => {
   try {
@@ -159,6 +214,8 @@ export const signin = async (req, res) => {
     res.json({
       token: generateToken(user.id),
       user,
+      referralCode: user.referral_code,
+      referralLink: `https://bc-game-client.onrender.com/i-${user.referral_code}`
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -397,7 +454,7 @@ export const updateProfile = async (req, res) => {
        RETURNING id, username, email, phone, role, balance, profile_image`,
       [username, email, phone, profileImage, req.user.id]
     );
-const user = result.rows[0];
+    const user = result.rows[0];
     res.json({
       id: user.id,
       username: user.username,

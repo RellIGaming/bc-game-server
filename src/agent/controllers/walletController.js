@@ -87,8 +87,9 @@ export const approveDeposit = async (req, res) => {
         if (req.user.role !== "agent") {
             return res.status(403).json({ message: "Only agent can approve" });
         }
- const amount = Number(deposit.amountBDT);
+        const amount = Number(deposit.amountBDT);
         await prisma.$transaction(async (tx) => {
+
             const agentWallet = await tx.wallet.findUnique({
                 where: {
                     userId_currency: {
@@ -98,13 +99,28 @@ export const approveDeposit = async (req, res) => {
                 }
             });
 
+            const userWallet = await tx.wallet.findUnique({
+                where: {
+                    userId_currency: {
+                        userId: deposit.userId,
+                        currency: "BDT"
+                    }
+                }
+            });
+
+            const balanceBefore = Number(userWallet?.balance || 0);
+            const balanceAfter = balanceBefore + amount;
+
             if (!agentWallet) {
-                throw new Error(`Agent wallet not found for ${deposit.currency}`)
+                throw new Error(`Agent wallet not found`);
             }
+
             if (Number(agentWallet.balance) < amount) {
                 throw new Error("Insufficient agent balance");
             }
-           
+
+            /* ================= MAIN BALANCE TRANSFER ================= */
+
             await tx.wallet.update({
                 where: {
                     userId_currency: {
@@ -113,16 +129,15 @@ export const approveDeposit = async (req, res) => {
                     }
                 },
                 data: {
-                    balance: {
-                        decrement: amount
-                    }
+                    balance: { decrement: amount }
                 }
             });
+
             await tx.wallet.upsert({
                 where: {
                     userId_currency: {
                         userId: deposit.userId,
-                       currency: "BDT"
+                        currency: "BDT"
                     }
                 },
                 update: {
@@ -135,18 +150,98 @@ export const approveDeposit = async (req, res) => {
                 }
             });
 
+            /* ================= USER TRANSACTION ================= */
+
             await tx.walletTransaction.create({
                 data: {
                     userId: deposit.userId,
-                    // currency: deposit.currency,
+                    txId: "TXN-" + nanoid(10),
                     currency: "BDT",
                     amount: amount,
                     type: "DEPOSIT",
                     status: "COMPLETED",
+                    balanceBefore,
+                    balanceAfter,
                     referenceId: deposit.id.toString(),
                     referenceType: "DEPOSIT"
                 }
             });
+
+            /* ===================================================== */
+            /* 🔥🔥🔥 REFERRAL COMMISSION LOGIC START 🔥🔥🔥 */
+            /* ===================================================== */
+
+            const user = await tx.user.findUnique({
+                where: { id: deposit.userId },
+                select: { referredBy: true }
+            });
+
+            if (user?.referredBy) {
+
+                const commission = amount * 0.05; // ✅ 5%
+
+                const refWallet = await tx.wallet.findUnique({
+                    where: {
+                        userId_currency: {
+                            userId: user.referredBy,
+                            currency: "BDT"
+                        }
+                    }
+                });
+
+                const refBefore = Number(refWallet?.balance || 0);
+                const refAfter = refBefore + commission;
+
+                /* ✅ Add commission */
+
+                await tx.wallet.upsert({
+                    where: {
+                        userId_currency: {
+                            userId: user.referredBy,
+                            currency: "BDT"
+                        }
+                    },
+                    update: {
+                        balance: { increment: commission }
+                    },
+                    create: {
+                        userId: user.referredBy,
+                        currency: "BDT",
+                        balance: commission
+                    }
+                });
+
+                /* ✅ Save transaction */
+
+                await tx.walletTransaction.create({
+                    data: {
+                        userId: user.referredBy,
+                        txId: "REF-" + nanoid(10),
+                        currency: "BDT",
+                        amount: commission,
+                        type: "DEPOSIT",
+                        status: "COMPLETED",
+                        balanceBefore: refBefore,
+                        balanceAfter: refAfter,
+                        referenceId: deposit.id.toString(),
+                        referenceType: "REFERRAL"
+                    }
+                });
+
+                /* ✅ Notify referrer */
+
+                await tx.notification.create({
+                    data: {
+                        userId: user.referredBy,
+                        type: "referral-earn",
+                        message: `You earned ৳${commission} from referral`
+                    }
+                });
+            }
+
+            /* ===================================================== */
+            /* 🔥🔥🔥 REFERRAL COMMISSION LOGIC END 🔥🔥🔥 */
+            /* ===================================================== */
 
             await tx.deposit.update({
                 where: { id: depositId },
@@ -165,7 +260,6 @@ export const approveDeposit = async (req, res) => {
             });
 
         });
-
         sendUserNotification(deposit.userId, {
             type: "deposit-approved",
             amount: deposit.amount,
@@ -259,7 +353,8 @@ export const approveWithdraw = async (req, res) => {
                     }
                 }
             });
-
+            const balanceBefore = Number(wallet.balance);
+            const balanceAfter = balanceBefore - Number(withdraw.amount);
             if (!wallet || Number(wallet.balance) < Number(withdraw.amount)) {
                 throw new Error("Insufficient balance");
             }
@@ -283,10 +378,13 @@ export const approveWithdraw = async (req, res) => {
                 data: {
                     userId: withdraw.userId,
                     // currency: withdraw.currency,
+                    txId: "TXN-" + nanoid(10),
                     currency: "BDT",
                     amount: withdraw.amount,
                     type: "WITHDRAW",
                     status: "COMPLETED",
+                    balanceBefore,
+                    balanceAfter,
                     referenceId: withdraw.id.toString(),
                     referenceType: "WITHDRAW"
                 }

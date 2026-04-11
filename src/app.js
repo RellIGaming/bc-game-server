@@ -19,6 +19,7 @@ import depositRoutes from "./routes/deposit.routes.js";
 import withdrawRoutes from "./routes/withdraw.routes.js";
 import vaultRoutes from "./routes/vault.routes.js";
 import swapRoutes from "./routes/swap.routes.js";
+import referralRoutes from "./routes/referral.routes.js";
 import transactionRoutes from "./routes/transaction.routes.js";
 import marketRoutes from "./routes/market.routes.js";
 import agentWalletRoutes from "./agent/routes/walletRoutes.js";
@@ -36,6 +37,8 @@ app.use(
       "http://localhost:8080",
       "http://localhost:5173",
       "https://bc-game-client.onrender.com",
+      "https://game-hero-dashboard.lovable.app",
+      
     ],
      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allowedHeaders: ["Content-Type", "Authorization"],
@@ -60,6 +63,7 @@ app.use("/api/deposit", depositRoutes);
 app.use("/api/withdraw", withdrawRoutes);
 app.use("/api/vault", vaultRoutes);
 app.use("/api/swap", swapRoutes);
+app.use("/api/referral", referralRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/notifications", notificationRoutes);
 

@@ -11,6 +11,11 @@ const { Pool } = pkg;
 //   password: process.env.DB_PASSWORD,
 //   port: process.env.DB_PORT,
 // });
+// for local site postgres
+// const pool = new Pool({
+//   connectionString: process.env.DATABASE_URL,
+// });
+// for deploy site postgres
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {

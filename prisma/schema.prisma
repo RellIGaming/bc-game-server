@@ -139,7 +139,7 @@ model User {
   role UserRole @default(user)
 isActive  Boolean @default(true)
   referredBy Int? @map("referred_by")
-
+referralCode String? @unique @default(cuid()) @map("referral_code")
   resetPasswordToken  String?   @map("reset_password_token") @db.VarChar(255)
   resetPasswordExpire DateTime? @map("reset_password_expire")
 
@@ -259,8 +259,19 @@ model Vault {
   id      Int     @id @default(autoincrement())
   userId  Int     @unique
   balance Decimal @default(0) @db.Decimal(38, 2)
-
+  currency  String
+   updatedAt DateTime @updatedAt
   user User @relation(fields: [userId], references: [id])
+  @@unique([userId, currency])
+}
+model VaultTransaction {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // INTEREST / DEPOSIT / WITHDRAW
+  amount    Float
+  currency  String
+  createdAt DateTime @default(now())
+   @@map("VaultTransaction")
 }
 
 model Rollover {
@@ -368,7 +379,7 @@ model WalletTransaction {
   currency String
   type     TransactionType
   status   TransactionStatus @default(PENDING)
-
+  txId           String?  @unique
   amount Decimal @db.Decimal(38, 2)
 
   balanceBefore Decimal? @map("balance_before") @db.Decimal(38, 2)
