@@ -136,8 +136,8 @@ export const getSummary = async (req, res) => {
     const wallets = await prisma.wallet.findMany({ where: { userId: req.user.id } });
 
     const totalBalance = wallets.reduce((acc, w) => acc + Number(w.balance || 0) + Number(w.bonus || 0), 0);
-const depositBalance = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
-const bonusBalance = wallets.reduce((acc, w) => acc + Number(w.bonus || 0), 0);
+    const depositBalance = wallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
+    const bonusBalance = wallets.reduce((acc, w) => acc + Number(w.bonus || 0), 0);
 
     res.json({ totalBalance, depositBalance, bonusBalance });
   } catch (err) {

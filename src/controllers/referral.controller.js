@@ -3,6 +3,102 @@ import prisma from "../prisma.js";
 
 // controllers/referral.controller.js
 
+// export const getReferralDashboard = async (req, res) => {
+//     try {
+//         const userId = req.user.id;
+
+//         /* ================= USER ================= */
+
+//         const user = await prisma.user.findUnique({
+//             where: { id: userId },
+//             select: {
+//                 referralCode: true
+//             }
+//         });
+//         if (!user) {
+//             return res.status(404).json({ message: "User not found" });
+//         }
+//         /* ================= FRIENDS ================= */
+
+//         const totalFriends = await prisma.user.count({
+//             where: { referredBy: userId }
+//         });
+
+//         /* ================= TOTAL REFERRAL REWARD ================= */
+
+//         const referralReward = await prisma.walletTransaction.aggregate({
+//             _sum: { amount: true },
+//             where: {
+//                 userId,
+//                 referenceType: "REFERRAL"
+//             }
+//         });
+
+//         /* ================= COMMISSION (YOU CAN EXTEND LATER) ================= */
+
+//         const commissionReward = await prisma.walletTransaction.aggregate({
+//             _sum: { amount: true },
+//             where: {
+//                 userId,
+//                 type: "DEPOSIT",
+//                 referenceType: "REFERRAL"
+//             }
+//         });
+
+//         /* ================= RECENT ACTIVITIES ================= */
+
+//         const activities = await prisma.walletTransaction.findMany({
+//             where: {
+//                 userId,
+//                 referenceType: "REFERRAL"
+//             },
+//             orderBy: { createdAt: "desc" },
+//             take: 10
+//         });
+
+//         /* ================= LIVE REWARDS (GLOBAL) ================= */
+
+//         const liveRewardsRaw = await prisma.walletTransaction.findMany({
+//             where: {
+//                 referenceType: "REFERRAL"
+//             },
+//             orderBy: { createdAt: "desc" },
+//             take: 20,
+//             include: {
+//                 user: {
+//                     select: { username: true }
+//                 }
+//             }
+//         });
+
+//         const liveRewards = liveRewardsRaw.map((r) => ({
+//             user: r.user?.username || "Unknown",
+//             amount: `+${r.amount}`,
+//             icon: "🟢"
+//         }));
+
+//         /* ================= RESPONSE ================= */
+
+//         res.json({
+//             referralCode: user.referralCode,
+//             referralLink: `https://bc-game-client.onrender.com/i-${user.referralCode}`,
+
+//             stats: {
+//                 totalFriends,
+//                 totalReward: Number(referralReward._sum.amount || 0),
+//                 referralReward: Number(referralReward._sum.amount || 0),
+//                 commissionReward: Number(commissionReward._sum.amount || 0),
+//             },
+
+//             activities,
+//             liveRewards
+//         });
+
+//     } catch (err) {
+//         res.status(500).json({ message: err.message });
+//     }
+// };
+
 export const getReferralDashboard = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -15,32 +111,35 @@ export const getReferralDashboard = async (req, res) => {
                 referralCode: true
             }
         });
+
         if (!user) {
             return res.status(404).json({ message: "User not found" });
         }
+
         /* ================= FRIENDS ================= */
 
         const totalFriends = await prisma.user.count({
             where: { referredBy: userId }
         });
 
-        /* ================= TOTAL REFERRAL REWARD ================= */
+        /* ================= BONUS BALANCE (🔥 IMPORTANT) ================= */
+
+        const wallets = await prisma.wallet.findMany({
+            where: { userId },
+            select: { bonus: true }
+        });
+
+        const totalBonus = wallets.reduce(
+            (sum, w) => sum + Number(w.bonus || 0),
+            0
+        );
+
+        /* ================= REFERRAL REWARD (HISTORY) ================= */
 
         const referralReward = await prisma.walletTransaction.aggregate({
             _sum: { amount: true },
             where: {
                 userId,
-                referenceType: "REFERRAL"
-            }
-        });
-
-        /* ================= COMMISSION (YOU CAN EXTEND LATER) ================= */
-
-        const commissionReward = await prisma.walletTransaction.aggregate({
-            _sum: { amount: true },
-            where: {
-                userId,
-                type: "DEPOSIT",
                 referenceType: "REFERRAL"
             }
         });
@@ -56,7 +155,7 @@ export const getReferralDashboard = async (req, res) => {
             take: 10
         });
 
-        /* ================= LIVE REWARDS (GLOBAL) ================= */
+        /* ================= LIVE REWARDS ================= */
 
         const liveRewardsRaw = await prisma.walletTransaction.findMany({
             where: {
@@ -85,9 +184,12 @@ export const getReferralDashboard = async (req, res) => {
 
             stats: {
                 totalFriends,
-                totalReward: Number(referralReward._sum.amount || 0),
+
+                // 🔥 REAL BONUS (what user can use in UI)
+                bonusBalance: totalBonus,
+
+                // 📊 Historical earnings
                 referralReward: Number(referralReward._sum.amount || 0),
-                commissionReward: Number(commissionReward._sum.amount || 0),
             },
 
             activities,
@@ -183,45 +285,72 @@ export const getReferralEarnings = async (req, res) => {
 
 // POST /api/referral/test-reward
 export const createTestReferralReward = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { amount, referredUserId } = req.body;
-        if (!referredUserId) {
-            return res.status(400).json({ message: "referredUserId required" });
-        }
-        const exists = await prisma.walletTransaction.findFirst({
-            where: {
-                reference_id: referredUserId,
-                type: "REFERRAL_REWARD"
-            }
-        });
+  try {
+    const userId = req.user.id;
+    const { amount = 100, referredUserId } = req.body;
 
-        if (exists) {
-            return res.status(400).json({
-                message: "Reward already given"
-            });
-        }
-        const tx = await prisma.walletTransaction.create({
-            data: {
-                userId,
-                currency: "INR",
-                amount: amount || 100,
-                type: "DEPOSIT", // or BET_WIN if needed
-                status: "COMPLETED",
-                referenceType: "REFERRAL",
-                // 🔥 THIS IS THE FIX
-                referenceId: String(referredUserId) // friend ID
-            }
-        });
-
-        res.json({
-            message: "Test referral reward added",
-            tx
-        });
-
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+    if (!referredUserId) {
+      return res.status(400).json({ message: "referredUserId required" });
     }
+
+    /* ================= DUPLICATE CHECK ================= */
+
+    const exists = await prisma.walletTransaction.findFirst({
+      where: {
+        referenceId: String(referredUserId), // ✅ FIXED
+        type: "REFERRAL_REWARD" // ✅ MATCH TYPE
+      }
+    });
+
+    if (exists) {
+      return res.status(400).json({
+        message: "Reward already given"
+      });
+    }
+
+    /* ================= TRANSACTION (🔥 IMPORTANT) ================= */
+
+    const result = await prisma.$transaction(async (txDb) => {
+      
+      // 1️⃣ Create transaction
+      const tx = await txDb.walletTransaction.create({
+        data: {
+          userId,
+          currency: "INR",
+          amount,
+          type: "REFERRAL_REWARD", // ✅ FIXED
+          status: "COMPLETED",
+          referenceType: "REFERRAL",
+          referenceId: String(referredUserId)
+        }
+      });
+
+      // 2️⃣ Update wallet bonus
+      await txDb.wallet.update({
+        where: {
+          userId_currency: {
+            userId,
+            currency: "INR"
+          }
+        },
+        data: {
+          bonus: {
+            increment: amount
+          }
+        }
+      });
+
+      return tx;
+    });
+
+    res.json({
+      message: "Referral reward added successfully ✅",
+      tx: result
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
 export const getCommissionByFriends = async (req, res) => {
