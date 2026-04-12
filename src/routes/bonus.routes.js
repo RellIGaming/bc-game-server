@@ -6,7 +6,10 @@ import {
   getMonthlyDepositBonus,
   redeemCode,
   getBonusFull,
-  seedBonusTestData
+  seedBonusTestData,
+  getVipLevels,
+  getVipClub,
+  getVipBonusTable
 } from "../controllers/bonus.controller.js";
 
 import { protect } from "../middleware/auth.middleware.js";
@@ -21,5 +24,12 @@ router.get("/monthly", protect, getMonthlyDepositBonus);
 router.post("/redeem", protect, redeemCode);
 router.get("/full", protect, getBonusFull);
 router.post("/test-seed", protect, seedBonusTestData);
+router.get("/vip-levels", getVipLevels);
+
+router.get("/vip-club", getVipClub);
+router.get("/vip-table", getVipBonusTable);
+
+
+
 
 export default router;

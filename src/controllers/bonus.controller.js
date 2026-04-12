@@ -483,3 +483,198 @@ export const seedBonusTestData = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// GET /api/bonus/vip-levels
+export const getVipLevels = async (req, res) => {
+  try {
+    // 👉 static for now (later DB से load कर सकते हो)
+    const vipLevels = [
+      {
+        name: "Bronze VIP 2–7",
+        key: "Bronze",
+        levels: [
+          { level: "VIP 02", xp: 100 },
+          { level: "VIP 03", xp: 200 },
+          { level: "VIP 04", xp: 1000 },
+          { level: "VIP 05", xp: 2000 },
+          { level: "VIP 06", xp: 3000 },
+          { level: "VIP 07", xp: 4000 },
+        ],
+      },
+      {
+        name: "Silver VIP 8–21",
+        key: "Silver",
+        levels: [
+          { level: "VIP 08", xp: 5000 },
+          { level: "VIP 09", xp: 7000 },
+        ],
+      },
+      {
+        name: "Gold VIP 22–37",
+        key: "Gold",
+        levels: [],
+      },
+      {
+        name: "Platinum I VIP 38–55",
+        key: "Platinum1",
+        levels: [],
+      },
+    ];
+
+    res.json({
+      success: true,
+      vipLevels,
+    });
+  } catch (err) {
+    console.error("VIP Levels Error:", err);
+    res.status(500).json({ message: "Failed to fetch VIP levels" });
+  }
+};
+
+// GET /api/bonus/vip-club
+export const getVipClub = async (req, res) => {
+  try {
+    const data = {
+      perks: [
+        {
+          icon: "lossback",
+          title: "Instant Lossback",
+          desc: "Earn rewards back instantly as you play",
+        },
+        {
+          icon: "bonus",
+          title: "Reload Bonuses",
+          desc: "Receive rewards every day — the more you play, the higher you get.",
+        },
+        {
+          icon: "box",
+          title: "Gameplay Bonuses",
+          desc: "Play across different game types to unlock richer rewards.",
+        },
+        {
+          icon: "lossback",
+          title: "Top Player Bonuses",
+          desc: "Play at the top to unlock exclusive rewards.",
+        },
+        {
+          icon: "bonus",
+          title: "Fee-Free D & W",
+          desc: "All deposits and withdrawals are fee-free.",
+        },
+        {
+          icon: "box",
+          title: "IRL VIP Events & Rewards",
+          desc: "Exclusive real-world VIP experiences.",
+        },
+        {
+          icon: "bonus",
+          title: "Dedicated VIP Host",
+          desc: "Personalized support whenever you need it",
+        },
+      ],
+
+      access: [
+        {
+          icon: "bonus",
+          title: "Activity",
+          desc: "Consistent gameplay helps you stand out.",
+        },
+        {
+          icon: "lossback",
+          title: "Loyalty",
+          desc: "Stable loyalty increases VIP chances.",
+        },
+        {
+          icon: "box",
+          title: "No Barriers",
+          desc: "No level requirement — everyone can qualify.",
+        },
+      ],
+
+      faqCategories: ["General", "Benefits"],
+
+      faqs: [
+        {
+          category: "General",
+          q: "How do I become a VIP?",
+          a: "VIP status is based on activity and loyalty.",
+        },
+        {
+          category: "General",
+          q: "What is VIP Transfer?",
+          a: "Transfer VIP benefits under conditions.",
+        },
+      ],
+    };
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: "VIP Club fetch failed" });
+  }
+};
+
+export const getVipBonusTable = async (req, res) => {
+  try {
+    const userId = req.user?.id; 
+
+    // 🔥 Example: fetch from DB
+    const userXp = 3200; 
+
+    const tiers = [
+      { name: "Bronze", color: "#CD7F32", minXp: 0 },
+      { name: "Silver", color: "#C0C0C0", minXp: 1000 },
+      { name: "Gold", color: "#FFD700", minXp: 5000 },
+      { name: "Platinum I", color: "#E5E4E2", minXp: 10000 },
+      { name: "Diamond II", color: "#7FDBFF", minXp: 20000 }
+    ];
+
+    // 🔥 Calculate user tier
+    let currentTier = tiers[0];
+    let nextTier = tiers[1];
+
+    for (let i = 0; i < tiers.length; i++) {
+      if (userXp >= tiers[i].minXp) {
+        currentTier = tiers[i];
+        nextTier = tiers[i + 1] || null;
+      }
+    }
+
+    const progressPercent = nextTier
+      ? Math.min(
+          ((userXp - currentTier.minXp) /
+            (nextTier.minXp - currentTier.minXp)) *
+            100,
+          100
+        )
+      : 100;
+
+    res.json({
+      tiers,
+      rows: [
+        {
+          label: "Daily Bonus",
+          icon: "gift",
+          enabled: ["Bronze", "Silver", "Gold"]
+        },
+        {
+          label: "VIP Spin",
+          icon: "trophy",
+          enabled: ["Gold", "Platinum I", "Diamond II"]
+        },
+        {
+          label: "Weekly Cashback",
+          icon: "coins",
+          enabled: ["Silver", "Gold", "Platinum I", "Diamond II"]
+        }
+      ],
+      userProgress: {
+        currentXp: userXp,
+        currentTier: currentTier.name,
+        nextTier: nextTier?.name || null,
+        progressPercent
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: "VIP table error" });
+  }
+};
