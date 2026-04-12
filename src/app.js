@@ -24,6 +24,7 @@ import transactionRoutes from "./routes/transaction.routes.js";
 import marketRoutes from "./routes/market.routes.js";
 import agentWalletRoutes from "./agent/routes/walletRoutes.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import bonusRoutes from "./routes/bonus.routes.js";
 
 import path from "path";
 
@@ -66,6 +67,7 @@ app.use("/api/swap", swapRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/bonus", bonusRoutes);
 
 // admin api
 app.use("/api/admin", adminRoutes);
