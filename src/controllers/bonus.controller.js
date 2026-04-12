@@ -315,3 +315,171 @@ export const redeemCode = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+
+export const getBonusFull = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    /* ================= SUMMARY ================= */
+
+    const wallets = await prisma.wallet.findMany({
+      where: { userId },
+      select: { bonus: true }
+    });
+
+    const totalBonus = wallets.reduce(
+      (sum, w) => sum + Number(w.bonus || 0),
+      0
+    );
+
+    const referral = await prisma.walletTransaction.aggregate({
+      _sum: { amount: true },
+      where: {
+        userId,
+        referenceType: "REFERRAL"
+      }
+    });
+
+    /* ================= VIP (STATIC LOGIC FOR NOW) ================= */
+
+    const xp = 0; // 🔥 later calculate from bets
+    const level = 0;
+    const nextXp = 100;
+
+    /* ================= MONTHLY BONUS ================= */
+
+    const monthlyTiers = [
+      { pct: 180, min: 0 },
+      { pct: 240, min: 10000 },
+      { pct: 300, min: 50000 },
+      { pct: 360, min: 100000 },
+    ];
+
+    const userDeposit = await prisma.walletTransaction.aggregate({
+      _sum: { amount: true },
+      where: {
+        userId,
+        type: "DEPOSIT"
+      }
+    });
+
+    const totalDeposit = Number(userDeposit._sum.amount || 0);
+
+    const tiers = monthlyTiers.map((t, i) => ({
+      pct: t.pct,
+      active:
+        totalDeposit >= t.min &&
+        (i === monthlyTiers.length - 1 ||
+          totalDeposit < monthlyTiers[i + 1].min),
+    }));
+
+    /* ================= BONUS LIST ================= */
+
+    const bonuses = [
+      {
+        type: "DAILY",
+        title: "Daily Bonus",
+        locked: level < 2,
+        unlockLevel: 2
+      },
+      {
+        type: "RAKEBACK",
+        title: "USD Rakeback",
+        lockedAmount: 1,
+        unlockRate: 20,
+        ready: 0,
+        canClaim: true,
+        nextClaimIn: 3600 * 1000
+      },
+      {
+        type: "SPIN",
+        title: "Lucky Spin",
+        dailyProgress: "0/18134"
+      },
+      {
+        type: "VAULT",
+        title: "Vault Pro",
+        holdings: 0,
+        returns: 0
+      }
+    ];
+
+    /* ================= RESPONSE ================= */
+
+    res.json({
+      summary: {
+        totalBonus,
+        referral: Number(referral._sum.amount || 0),
+        vip: 0,
+        general: 0,
+        locked: totalBonus
+      },
+
+      vip: {
+        level,
+        xp,
+        nextXp,
+        progress: Math.min((xp / nextXp) * 100, 100)
+      },
+
+      monthlyBonus: {
+        tiers,
+        totalDeposit,
+        resetInDays: 22
+      },
+
+      bonuses
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const seedBonusTestData = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    /* ===== Add deposit ===== */
+    await prisma.walletTransaction.create({
+      data: {
+        userId,
+        currency: "INR",
+        amount: 20000,
+        type: "DEPOSIT",
+        status: "COMPLETED"
+      }
+    });
+
+    /* ===== Add referral reward ===== */
+    await prisma.walletTransaction.create({
+      data: {
+        userId,
+        currency: "INR",
+        amount: 100,
+        type: "REFERRAL_REWARD",
+        status: "COMPLETED",
+        referenceType: "REFERRAL",
+        referenceId: "999"
+      }
+    });
+
+    /* ===== Update wallet bonus ===== */
+    await prisma.wallet.updateMany({
+      where: { userId },
+      data: {
+        bonus: {
+          increment: 100
+        }
+      }
+    });
+
+    res.json({
+      message: "✅ Test bonus data added"
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
