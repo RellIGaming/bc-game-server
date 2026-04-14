@@ -23,7 +23,8 @@ import {
   deletePromotion,
   createRound,
   forceDraw,
-  getRounds
+  getRounds,
+  deleteMessage
 
 } from "../controller/admin.controller.js";
 
