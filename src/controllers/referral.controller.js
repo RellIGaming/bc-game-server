@@ -1,5 +1,5 @@
 import prisma from "../prisma.js";
-
+import { nanoid } from "nanoid";
 
 // controllers/referral.controller.js
 
@@ -285,72 +285,72 @@ export const getReferralEarnings = async (req, res) => {
 
 // POST /api/referral/test-reward
 export const createTestReferralReward = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { amount = 100, referredUserId } = req.body;
+    try {
+        const userId = req.user.id;
+        const { amount = 100, referredUserId } = req.body;
 
-    if (!referredUserId) {
-      return res.status(400).json({ message: "referredUserId required" });
-    }
-
-    /* ================= DUPLICATE CHECK ================= */
-
-    const exists = await prisma.walletTransaction.findFirst({
-      where: {
-        referenceId: String(referredUserId), // ✅ FIXED
-        type: "REFERRAL_REWARD" // ✅ MATCH TYPE
-      }
-    });
-
-    if (exists) {
-      return res.status(400).json({
-        message: "Reward already given"
-      });
-    }
-
-    /* ================= TRANSACTION (🔥 IMPORTANT) ================= */
-
-    const result = await prisma.$transaction(async (txDb) => {
-      
-      // 1️⃣ Create transaction
-      const tx = await txDb.walletTransaction.create({
-        data: {
-          userId,
-          currency: "INR",
-          amount,
-          type: "REFERRAL_REWARD", // ✅ FIXED
-          status: "COMPLETED",
-          referenceType: "REFERRAL",
-          referenceId: String(referredUserId)
+        if (!referredUserId) {
+            return res.status(400).json({ message: "referredUserId required" });
         }
-      });
 
-      // 2️⃣ Update wallet bonus
-      await txDb.wallet.update({
-        where: {
-          userId_currency: {
-            userId,
-            currency: "INR"
-          }
-        },
-        data: {
-          bonus: {
-            increment: amount
-          }
+        /* ================= DUPLICATE CHECK ================= */
+
+        const exists = await prisma.walletTransaction.findFirst({
+            where: {
+                referenceId: String(referredUserId), // ✅ FIXED
+                type: "REFERRAL_REWARD" // ✅ MATCH TYPE
+            }
+        });
+
+        if (exists) {
+            return res.status(400).json({
+                message: "Reward already given"
+            });
         }
-      });
 
-      return tx;
-    });
+        /* ================= TRANSACTION (🔥 IMPORTANT) ================= */
 
-    res.json({
-      message: "Referral reward added successfully ✅",
-      tx: result
-    });
+        const result = await prisma.$transaction(async (txDb) => {
 
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+            // 1️⃣ Create transaction
+            const tx = await txDb.walletTransaction.create({
+                data: {
+                    userId,
+                    currency: "INR",
+                    amount,
+                    type: "REFERRAL_REWARD", // ✅ FIXED
+                    status: "COMPLETED",
+                    referenceType: "REFERRAL",
+                    referenceId: String(referredUserId)
+                }
+            });
+
+            // 2️⃣ Update wallet bonus
+            await txDb.wallet.update({
+                where: {
+                    userId_currency: {
+                        userId,
+                        currency: "INR"
+                    }
+                },
+                data: {
+                    bonus: {
+                        increment: amount
+                    }
+                }
+            });
+
+            return tx;
+        });
+
+        res.json({
+            message: "Referral reward added successfully ✅",
+            tx: result
+        });
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 };
 
 export const getCommissionByFriends = async (req, res) => {
@@ -538,4 +538,225 @@ export const getRewardHistory = async (req, res) => {
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
+};
+export const getReferralCodes = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // ✅ get all codes
+        const codes = await prisma.referralCode.findMany({
+            where: { userId },
+            orderBy: { createdAt: "desc" }
+        });
+
+        res.json({
+            total: codes.length,
+            max: 20,
+            codes: codes.map(c => ({
+                name: c.name || "--",
+                code: c.code,
+                link: `https://bc-game-client.onrender.com/i-${c.code}`,
+                rate: `${c.commissionRate || 25}%`,
+                date: c.createdAt,
+                referrals: c.referralsCount || 0
+            }))
+        });
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const createReferralCode = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { name } = req.body;
+
+        const count = await prisma.referralCode.count({
+            where: { userId }
+        });
+
+        if (count >= 20) {
+            return res.status(400).json({
+                message: "Max 20 referral codes allowed"
+            });
+        }
+
+        let code;
+        let exists;
+
+        do {
+            code = nanoid(8);
+            exists = await prisma.referralCode.findUnique({
+                where: { code }
+            });
+        } while (exists);
+
+        const newCode = await prisma.referralCode.create({
+            data: {
+                userId,
+                name,
+                code,
+                commissionRate: 25
+            }
+        });
+
+        res.json(newCode);
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getCommissionRules = async (req, res) => {
+  try {
+    res.json({
+      baseRate: 1, // 1%
+      games: [
+        {
+          name: "Original Games",
+          rate: 28
+        },
+        {
+          name: "3rd Party Slots / Live Casino",
+          rate: 60
+        },
+        {
+          name: "All Sports",
+          rate: 100
+        }
+      ]
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const calculateCommission = async (req, res) => {
+  try {
+    const { wager, gameType } = req.body;
+
+    if (!wager || !gameType) {
+      return res.status(400).json({ message: "Missing params" });
+    }
+
+    const base = wager * 0.01;
+
+    let rate = 28;
+
+    if (gameType === "slots") rate = 60;
+    if (gameType === "sports") rate = 100;
+
+    const result = (base * rate) / 100;
+
+    res.json({
+      wager,
+      baseCommission: base,
+      gameRate: rate,
+      result
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const getReferralVipLevels = async (req, res) => {
+  try {
+    const levels = [
+      { level: "Bronze I", wager: 1000, unlock: 0.5 },
+      { level: "Bronze II", wager: 3000, unlock: 2.5 },
+      { level: "Bronze IV", wager: 15000, unlock: 5 },
+      { level: "Silver I", wager: 30000, unlock: 12 },
+      { level: "Silver III", wager: 120000, unlock: 25 },
+      { level: "Silver IV", wager: 240000, unlock: 50 },
+      { level: "Gold I", wager: 500000, unlock: 80 },
+      { level: "Gold II", wager: 1000000, unlock: 120 },
+      { level: "Gold IV", wager: 2500000, unlock: 205 },
+      { level: "Platinum II", wager: 8500000, unlock: 500 }
+    ];
+
+    res.json({
+      currency: "USDT",
+      levels
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const getReferralProgress = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const totalWager = await prisma.bet.aggregate({
+      _sum: { amount: true },
+      where: { userId }
+    });
+
+    const wager = Number(totalWager._sum.amount || 0);
+
+    res.json({
+      totalWager: wager,
+      currentLevel: "Bronze I", // later calculate dynamically
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const processReferralUnlock = async (friendId) => {
+  const progressList = await prisma.referralProgress.findMany({
+    where: { friendId }
+  });
+
+  for (const progress of progressList) {
+    const { totalWager, unlocked, userId } = progress;
+
+    let newReward = 0;
+
+    for (const level of VIP_LEVELS) {
+      if (totalWager >= level.wager) {
+        newReward += level.reward;
+      }
+    }
+
+    const toUnlock = newReward - unlocked;
+
+    if (toUnlock > 0) {
+      await prisma.$transaction(async (tx) => {
+        
+        // update unlocked
+        await tx.referralProgress.update({
+          where: { id: progress.id },
+          data: { unlocked: newReward }
+        });
+
+        // add wallet bonus
+        await tx.wallet.update({
+          where: {
+            userId_currency: { userId, currency: "INR" }
+          },
+          data: {
+            bonus: { increment: toUnlock }
+          }
+        });
+
+        // transaction log
+        await tx.walletTransaction.create({
+          data: {
+            userId,
+            amount: toUnlock,
+            currency: "INR",
+            type: "REFERRAL_REWARD",
+            referenceType: "REFERRAL",
+            status: "COMPLETED",
+            referenceId: String(friendId)
+          }
+        });
+      });
+    }
+  }
 };

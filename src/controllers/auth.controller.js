@@ -113,15 +113,40 @@ export const signup = async (req, res) => {
     /* ================= REFERRAL LOGIC ================= */
 
     let referredBy = null;
+    let usedReferralCode = null;
 
     if (promoCode) {
-      const ref = await client.query(
-        "SELECT id FROM users WHERE referral_code = $1",
-        [promoCode] // ✅ FIXED
+
+      // 1️⃣ Check campaign referral codes first
+      const campaign = await client.query(
+        `SELECT "userId", code FROM referral_codes WHERE code = $1`,
+        [promoCode]
       );
 
-      if (ref.rows.length > 0) {
-        referredBy = ref.rows[0].id;
+      if (campaign.rows.length > 0) {
+        referredBy = campaign.rows[0].userId;
+        usedReferralCode = campaign.rows[0].code;
+
+        // 🔥 increment referrals count
+        await client.query(
+          `UPDATE referral_codes 
+       SET "referralsCount" = "referralsCount" + 1
+       WHERE code = $1`,
+          [promoCode]
+        );
+
+      } else {
+
+        // 2️⃣ fallback to default user referral
+        const ref = await client.query(
+          `SELECT id, referral_code FROM users WHERE referral_code = $1`,
+          [promoCode]
+        );
+
+        if (ref.rows.length > 0) {
+          referredBy = ref.rows[0].id;
+          usedReferralCode = ref.rows[0].referral_code;
+        }
       }
     }
 
@@ -144,14 +169,29 @@ export const signup = async (req, res) => {
 
     const newUser = await client.query(
       `INSERT INTO users 
-      (username, email, password, role, referred_by, referral_code)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *`,
-      [username, email, hashed, userRole, referredBy, referralCode]
+(username, email, password, role, referred_by, referral_code, used_referral_code)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING *`,
+      [
+        username,
+        email,
+        hashed,
+        userRole,
+        referredBy,
+        referralCode,
+        usedReferralCode
+      ]
     );
 
     const user = newUser.rows[0];
-
+    if (referredBy) {
+      await prisma.referralProgress.create({
+        data: {
+          userId: referredBy,
+          friendId: user.id
+        }
+      });
+    }
     /* ================= CREATE WALLETS ================= */
 
     const currencies = ["INR", "BDT", "USD", "PKR"];
@@ -195,7 +235,7 @@ export const signup = async (req, res) => {
 export const signin = async (req, res) => {
   try {
     const { identifier, password } = req.body;
- console.log("BODY:", req.body);
+    console.log("BODY:", req.body);
     const result = await pool.query(
       `SELECT * FROM users 
        WHERE email = $1 OR username = $1 OR phone = $1`,

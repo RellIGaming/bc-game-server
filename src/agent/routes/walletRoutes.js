@@ -19,7 +19,12 @@ import {
     getTickets,
     replyTicket,
     getAgentWallet,
-    getWeeklyChart
+    getWeeklyChart,
+    getReferral,
+    getAgentUsers,
+    getAgentCommission,
+    getAgentTransactions
+
 
 } from "../controllers/walletController.js";
 
@@ -72,7 +77,15 @@ router.post("/support/create-ticket", protect, isAgent, createTicket);
 router.get("/support/ticket-list", protect, isAgent, getTickets);
 router.post("/support/tickets/reply", protect, isAgent, replyTicket);
 
+router.get("/referral-dashboard", protect, isAgent, getReferral);
+router.get("/users",protect, isAgent,  getAgentUsers);
 
+/* ================= COMMISSION ================= */
 
+router.get("/commission",protect, isAgent, getAgentCommission);
+
+/* ================= TRANSACTIONS ================= */
+
+router.get("/transactions", getAgentTransactions);
 
 export default router;

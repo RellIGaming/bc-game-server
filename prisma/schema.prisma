@@ -130,6 +130,24 @@ enum WithdrawalStatus {
   REJECTED
 }
 
+model ReferralCode {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  name   String?
+  code   String  @unique
+
+  commissionRate Int @default(25)
+  referralsCount Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("referral_codes")
+}
+
 model User {
   id       Int     @id @default(autoincrement())
   username String  @unique @db.VarChar(100)
@@ -137,13 +155,15 @@ model User {
   phone    String? @db.VarChar(20)
   password String  @db.VarChar(255)
 
-  role UserRole @default(user)
-isActive  Boolean @default(true)
-  referredBy Int? @map("referred_by")
-referralCode String? @unique @default(cuid()) @map("referral_code")
+  role                UserRole  @default(user)
+  isActive            Boolean   @default(true)
+  referredBy          Int?      @map("referred_by")
+  referrer User? @relation("UserReferral", fields: [referredBy], references: [id])
+  referrals User[] @relation("UserReferral")
+  referralCode        String?   @unique @default(cuid()) @map("referral_code")
   resetPasswordToken  String?   @map("reset_password_token") @db.VarChar(255)
   resetPasswordExpire DateTime? @map("reset_password_expire")
-
+  usedReferralCode String? @map("used_referral_code")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") // add @default(now())
   balance          Decimal   @default(0)
@@ -160,18 +180,194 @@ referralCode String? @unique @default(cuid()) @map("referral_code")
   transactions        WalletTransaction[]
   diceBets            DiceBet[]
   slotSpins           SlotSpin[]
-
-  vault     Vault?
-  rollovers Rollover[]
-  swaps     Swap[]
-
+  referralCodes       ReferralCode[]
+  vault               Vault?
+  rollovers           Rollover[]
+  swaps               Swap[]
+  raffleTickets RaffleTicket[]
+  raffleWinners RaffleWinner[]
+  @@index([referredBy])
+  @@index([referralCode])
+  @@index([usedReferralCode])
   @@index([role])
   @@map("users")
 }
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    Int?
+  username  String
+  message   String
+  room      String   @default("global")
+
+  // ✅ NEW FIELDS
+  isDeleted Boolean  @default(false)
+  isAdmin   Boolean  @default(false)
+
+  replyToId String?
+  replyTo   ChatMessage? @relation("Reply", fields: [replyToId], references: [id])
+  replies   ChatMessage[] @relation("Reply")
+
+  createdAt DateTime @default(now())
+
+  @@index([room, createdAt])
+}
+model CommissionRule {
+  id Int @id @default(autoincrement())
+  gameType String
+  rate Int
+}
+model ReferralProgress {
+  id          Int     @id @default(autoincrement())
+  userId      Int     // referrer
+  friendId    Int     // referred user
+  totalWager  Float   @default(0)
+  unlocked    Float   @default(0)
+}
+model Promotion {
+  id        Int      @id @default(autoincrement())
+  title     String
+  sub       String
+  endsAt    DateTime
+  badge     String?
+  status    String   @default("IN_PROGRESS")
+
+  categories String[] // ["Casino", "Sports"]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("promotions")
+}
+model DailyContest {
+  id Int @id @default(autoincrement())
+
+  title        String   @default("Daily Contest")
+  prizePool    Float
+  startDate    DateTime
+  endDate      DateTime
+  isActive     Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leaderboard DailyContestLeaderboard[]
+  histories   DailyContestHistory[]
+}
+
+model DailyContestLeaderboard {
+  id Int @id @default(autoincrement())
+
+  contestId Int
+  userId    Int?
+
+  playerName String
+  wager      Float
+  prize      Float
+  rank       Int
+
+  contest DailyContest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+
+  @@index([contestId])
+}
+
+model DailyContestHistory {
+  id Int @id @default(autoincrement())
+
+  contestId Int
+
+  playerName String
+  wager      Float
+  prize      Float
+  rank       Int
+
+  createdAt DateTime @default(now())
+
+  contest DailyContest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+}
+
+model DailyContestRule {
+  id Int @id @default(autoincrement())
+
+  content String
+  order   Int
+}
+
+model DailyContestCurrency {
+  id Int @id @default(autoincrement())
+
+  groupText String
+  order     Int
+}
+model DepositBonusTier {
+  id    Int    @id @default(autoincrement())
+  order Int
+
+  percentage Int
+  label      String
+  minAmount  Decimal @db.Decimal(18, 2)
+
+  maxBonus   Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+
+  @@map("deposit_bonus_tiers")
+}
+model RaffleRound {
+  id           Int      @id @default(autoincrement())
+  roundId      String   @unique
+  prizePool    Decimal  @default(0)
+  totalTickets Int      @default(0)
+
+  startAt DateTime
+  endAt   DateTime
+  drawAt  DateTime
+
+  status String @default("ACTIVE") // ACTIVE, DRAWN
+
+  tickets RaffleTicket[]
+
+  createdAt DateTime @default(now())
+}
+
+model RaffleTicket {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  roundId String
+
+  ticketNumber String @unique
+
+  wagerAmount Decimal @default(0)
+
+  isWinner Boolean @default(false)
+  prize    Decimal @default(0)
+
+  user  User        @relation(fields: [userId], references: [id])
+  round RaffleRound @relation(fields: [roundId], references: [roundId])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([roundId])
+}
+
+model RaffleWinner {
+  id        Int    @id @default(autoincrement())
+  roundId   String
+  userId    Int
+  ticketNo  String
+  prize     Float
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([roundId])
+}
 model ExchangeRate {
-  id       Int     @id @default(autoincrement())
-  currency String  @unique
-  rate     Float   // to BDT
+  id       Int    @id @default(autoincrement())
+  currency String @unique
+  rate     Float // to BDT
 }
 
 model Game {
@@ -236,11 +432,11 @@ model Deposit {
   method   String
   network  String?
 
-  amount Decimal @db.Decimal(38, 2)
+  amount    Decimal @db.Decimal(38, 2)
   amountBDT Decimal @db.Decimal(38, 2)
-  txHash String?
-  txId   String?
-  proof  String?
+  txHash    String?
+  txId      String?
+  proof     String?
 
   status DepositStatus @default(PENDING)
 
@@ -255,24 +451,26 @@ model Deposit {
   @@index([status])
 }
 
-
 model Vault {
-  id      Int     @id @default(autoincrement())
-  userId  Int     @unique
-  balance Decimal @default(0) @db.Decimal(38, 2)
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  balance   Decimal  @default(0) @db.Decimal(38, 2)
   currency  String
-   updatedAt DateTime @updatedAt
-  user User @relation(fields: [userId], references: [id])
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+
   @@unique([userId, currency])
 }
+
 model VaultTransaction {
   id        String   @id @default(cuid())
   userId    String
-  type      String   // INTEREST / DEPOSIT / WITHDRAW
+  type      String // INTEREST / DEPOSIT / WITHDRAW
   amount    Float
   currency  String
   createdAt DateTime @default(now())
-   @@map("VaultTransaction")
+
+  @@map("VaultTransaction")
 }
 
 model Rollover {
@@ -380,8 +578,8 @@ model WalletTransaction {
   currency String
   type     TransactionType
   status   TransactionStatus @default(PENDING)
-  txId           String?  @unique
-  amount Decimal @db.Decimal(38, 2)
+  txId     String?           @unique
+  amount   Decimal           @db.Decimal(38, 2)
 
   balanceBefore Decimal? @map("balance_before") @db.Decimal(38, 2)
   balanceAfter  Decimal? @map("balance_after") @db.Decimal(38, 2)

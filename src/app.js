@@ -25,6 +25,8 @@ import marketRoutes from "./routes/market.routes.js";
 import agentWalletRoutes from "./agent/routes/walletRoutes.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import bonusRoutes from "./routes/bonus.routes.js";
+import dailyContestRoutes from "./routes/dailyContest.routes.js";
+import raffleRoutes from "./routes/raffle.routes.js";
 
 import path from "path";
 
@@ -68,6 +70,8 @@ app.use("/api/referral", referralRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/bonus", bonusRoutes);
+app.use("/api/contest", dailyContestRoutes);
+app.use("/api/raffle", raffleRoutes);
 
 // admin api
 app.use("/api/admin", adminRoutes);
