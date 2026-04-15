@@ -112,36 +112,26 @@ export const getChatMessages = async (req, res) => {
     // ✅ Limit safety
     limit = Math.min(parseInt(limit), 100);
 
-    const messages = await prisma.chatMessage.findMany({
-      where: { room },
-      orderBy: { createdAt: "desc" },
+const messages = await prisma.chatMessage.findMany({
+  where: { room },
+  orderBy: { createdAt: "desc" },
+  take: limit,
 
-      take: limit,
+  ...(cursor && {
+    skip: 1,
+    cursor: { id: cursor },
+  }),
 
-      ...(cursor && {
-        skip: 1,
-        cursor: {
-          id: cursor,
-        },
-      }),
-
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            profileImage: true,
-          },
-        },
-        replyTo: {
-          select: {
-            id: true,
-            username: true,
-            message: true,
-          },
-        },
-      }
-    });
+  include: {
+    replyTo: {
+      select: {
+        id: true,
+        username: true,
+        message: true,
+      },
+    },
+  },
+});
 
     // ✅ Reverse for UI (old → new)
     const formattedMessages = messages.reverse();
@@ -197,7 +187,7 @@ export const sendChatMessage = async (req, res) => {
 
     const botMessage = await prisma.chatMessage.create({
       data: {
-        userId: "bot",
+        userId: req.user.id,
         username: BOT_NAME,
         message: botReplyText,
         room: room.toLowerCase(),
