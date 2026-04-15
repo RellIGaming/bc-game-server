@@ -1,4 +1,5 @@
 import prisma from "../prisma.js"
+import { BOT_NAME, getAIReply } from "../utils/aibot.js";
 import { getIO } from "../utils/socket.js";
 
 // GET /api/user/notifications
@@ -22,7 +23,6 @@ export const getUserNotifications = async (req, res) => {
   }
 
 };
-
 
 
 export const markUserNotificationRead = async (req, res) => {
@@ -78,29 +78,6 @@ export const markAllUserNotificationsRead = async (req, res) => {
 
 // get chat message
 
-const BOT_NAME = "ChatBot";
-
-function getBotReply(message) {
-  const msg = message.toLowerCase();
-
-  if (msg.includes("hi") || msg.includes("hello")) {
-    return "Hello 👋 How can I help you?";
-  }
-
-  if (msg.includes("help")) {
-    return "Sure! Tell me your problem 😊";
-  }
-
-  if (msg.includes("price")) {
-    return "Prices are updated daily 💰";
-  }
-
-  if (msg.includes("bye")) {
-    return "Goodbye 👋";
-  }
-
-  return "I am a simple bot 🤖";
-}
 
 export const getChatMessages = async (req, res) => {
   try {
@@ -112,26 +89,26 @@ export const getChatMessages = async (req, res) => {
     // ✅ Limit safety
     limit = Math.min(parseInt(limit), 100);
 
-const messages = await prisma.chatMessage.findMany({
-  where: { room },
-  orderBy: { createdAt: "desc" },
-  take: limit,
+    const messages = await prisma.chatMessage.findMany({
+      where: { room },
+      orderBy: { createdAt: "desc" },
+      take: limit,
 
-  ...(cursor && {
-    skip: 1,
-    cursor: { id: cursor },
-  }),
+      ...(cursor && {
+        skip: 1,
+        cursor: { id: cursor },
+      }),
 
-  include: {
-    replyTo: {
-      select: {
-        id: true,
-        username: true,
-        message: true,
+      include: {
+        replyTo: {
+          select: {
+            id: true,
+            username: true,
+            message: true,
+          },
+        },
       },
-    },
-  },
-});
+    });
 
     // ✅ Reverse for UI (old → new)
     const formattedMessages = messages.reverse();
@@ -182,21 +159,29 @@ export const sendChatMessage = async (req, res) => {
     // ✅ SEND USER MESSAGE
     io.to(newMessage.room).emit("receive-message", newMessage);
 
-    // 🤖 BOT REPLY
-    const botReplyText = getBotReply(message);
+    // 🤖 BOT TYPING START
+    io.to(newMessage.room).emit("bot-typing", true);
 
-    const botMessage = await prisma.chatMessage.create({
-      data: {
-        userId: req.user.id,
-        username: BOT_NAME,
-        message: botReplyText,
-        room: room.toLowerCase(),
-        isAdmin: false,
-      },
-    });
+    // 🤖 AI REPLY DELAY
+    setTimeout(async () => {
+      const botReplyText = await getAIReply(message);
 
-    // ✅ SEND BOT MESSAGE
-    io.to(botMessage.room).emit("receive-message", botMessage);
+      const botMessage = await prisma.chatMessage.create({
+        data: {
+          userId: null, // ✅ important
+         username: BOT_NAME,
+          message: botReplyText,
+          room: room.toLowerCase(),
+          isAdmin: false,
+        },
+      });
+
+      // ❌ STOP typing
+      io.to(room.toLowerCase()).emit("bot-typing", false);
+
+      // ✅ SEND BOT MESSAGE
+      io.to(room.toLowerCase()).emit("receive-message", botMessage);
+    }, 1200);
 
     res.status(201).json(newMessage);
 

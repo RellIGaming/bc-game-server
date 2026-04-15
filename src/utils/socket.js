@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import prisma from "../prisma.js";
+import { getAIReply } from "./aibot.js";
 
 let io;
 
@@ -60,12 +61,14 @@ export function initSocket(server) {
 
         if (!user) return;
 
+        const normalizedRoom = room.toLowerCase();
+
         const newMessage = await prisma.chatMessage.create({
           data: {
             userId,
             username: user.username,
             message: message.trim(),
-            room: room.toLowerCase(),
+            room: normalizedRoom,
             replyToId: replyToId || null,
             isAdmin: user.role === "admin",
           },
@@ -81,23 +84,38 @@ export function initSocket(server) {
         });
 
         // ✅ SEND USER MESSAGE
-        io.to(room.toLowerCase()).emit("receive-message", newMessage);
+        io.to(normalizedRoom).emit("receive-message", newMessage);
 
-        // 🤖 BOT REPLY
-        const botReplyText = getBotReply(message);
+        // 🤖 BOT TYPING START
+        io.to(normalizedRoom).emit("bot-typing", true);
 
-        const botMessage = await prisma.chatMessage.create({
-          data: {
-            userId: "bot",
-            username: BOT_NAME,
-            message: botReplyText,
-            room: room.toLowerCase(),
-            isAdmin: false,
-          },
-        });
+        // 🤖 AI REPLY (delay)
+        setTimeout(async () => {
+          try {
+            const botReplyText = await getAIReply(message);
 
-        // ✅ SEND BOT MESSAGE
-        io.to(room.toLowerCase()).emit("receive-message", botMessage);
+            const botMessage = await prisma.chatMessage.create({
+              data: {
+                userId: null, // ✅ correct
+                username: "ChatBot", // ✅ define directly
+                message: botReplyText,
+                room: normalizedRoom,
+                isAdmin: false,
+              },
+            });
+
+            // STOP typing
+            io.to(normalizedRoom).emit("bot-typing", false);
+
+            // SEND bot message
+            io.to(normalizedRoom).emit("receive-message", botMessage);
+
+          } catch (err) {
+            console.error("Bot error:", err);
+
+            io.to(normalizedRoom).emit("bot-typing", false);
+          }
+        }, 1200);
 
       } catch (err) {
         console.error("Chat error:", err);
