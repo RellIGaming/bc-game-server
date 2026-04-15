@@ -1,4 +1,5 @@
 import prisma from "../prisma.js"
+import { getIO } from "../utils/socket.js";
 
 // GET /api/user/notifications
 // POST /api/user/notifications/read
@@ -77,6 +78,30 @@ export const markAllUserNotificationsRead = async (req, res) => {
 
 // get chat message
 
+const BOT_NAME = "ChatBot";
+
+function getBotReply(message) {
+  const msg = message.toLowerCase();
+
+  if (msg.includes("hi") || msg.includes("hello")) {
+    return "Hello 👋 How can I help you?";
+  }
+
+  if (msg.includes("help")) {
+    return "Sure! Tell me your problem 😊";
+  }
+
+  if (msg.includes("price")) {
+    return "Prices are updated daily 💰";
+  }
+
+  if (msg.includes("bye")) {
+    return "Goodbye 👋";
+  }
+
+  return "I am a simple bot 🤖";
+}
+
 export const getChatMessages = async (req, res) => {
   try {
     let { room = "global", cursor, limit = 50 } = req.query;
@@ -136,34 +161,19 @@ export const sendChatMessage = async (req, res) => {
   try {
     const { message, room = "global", replyToId } = req.body;
 
-    // ✅ Validate message
-    if (!message || !message.trim()) {
+    if (!message?.trim()) {
       return res.status(400).json({ message: "Message is required" });
     }
 
     const user = req.user;
 
-    // ✅ Check reply message exists (optional safety)
-    let replyTo = null;
-    if (replyToId) {
-      replyTo = await prisma.chatMessage.findUnique({
-        where: { id: replyToId },
-        select: {
-          id: true,
-          username: true,
-          message: true,
-        },
-      });
-    }
-
-    // ✅ Save message
     const newMessage = await prisma.chatMessage.create({
       data: {
         userId: user.id,
         username: user.username,
         message: message.trim(),
         room: room.toLowerCase(),
-        replyToId: replyTo ? replyTo.id : null,
+        replyToId: replyToId || null,
         isAdmin: user.role === "admin",
       },
       include: {
@@ -177,15 +187,31 @@ export const sendChatMessage = async (req, res) => {
       },
     });
 
-    // ✅ Emit via socket (REALTIME)
     const io = getIO();
+
+    // ✅ SEND USER MESSAGE
     io.to(newMessage.room).emit("receive-message", newMessage);
 
-    // ✅ Response
+    // 🤖 BOT REPLY
+    const botReplyText = getBotReply(message);
+
+    const botMessage = await prisma.chatMessage.create({
+      data: {
+        userId: "bot",
+        username: BOT_NAME,
+        message: botReplyText,
+        room: room.toLowerCase(),
+        isAdmin: false,
+      },
+    });
+
+    // ✅ SEND BOT MESSAGE
+    io.to(botMessage.room).emit("receive-message", botMessage);
+
     res.status(201).json(newMessage);
 
   } catch (err) {
-    console.error("Send chat message error:", err);
+    console.error("REST chat error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
