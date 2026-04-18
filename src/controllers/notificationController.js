@@ -180,7 +180,7 @@ export const sendChatMessage = async (req, res) => {
       io.to(room.toLowerCase()).emit("bot-typing", false);
 
       // ✅ SEND BOT MESSAGE
-      io.to(room.toLowerCase()).emit("receive-message", botMessage);
+      // io.to(room.toLowerCase()).emit("receive-message", botMessage);
     }, 1200);
 
     res.status(201).json(newMessage);

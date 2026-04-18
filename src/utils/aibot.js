@@ -15,6 +15,7 @@ export const getAIReply = async (message) => {
         headers: {
           Authorization: `Bearer ${process.env.HF_API_KEY}`,
         },
+        timeout: 10000,
       }
     );
 
@@ -28,6 +29,20 @@ export const getAIReply = async (message) => {
     return reply || "🤖 I don't understand";
   } catch (err) {
     console.error("HF ERROR:", err.response?.data || err.message);
-    return "⚠️ AI busy";
+    return getFallbackReply(message);
   }
 };
+
+function getFallbackReply(message) {
+  const msg = message.toLowerCase();
+
+  if (msg.includes("hi") || msg.includes("hello")) {
+    return "Hello 👋";
+  }
+
+  if (msg.includes("help")) {
+    return "I'm here to help 😊";
+  }
+
+  return "🤖 I'm thinking...";
+}

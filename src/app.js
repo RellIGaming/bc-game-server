@@ -27,6 +27,7 @@ import notificationRoutes from "./routes/notification.routes.js";
 import bonusRoutes from "./routes/bonus.routes.js";
 import dailyContestRoutes from "./routes/dailyContest.routes.js";
 import raffleRoutes from "./routes/raffle.routes.js";
+import promotionRoutes from "./routes/promotion.routes.js";
 
 import path from "path";
 
@@ -53,7 +54,7 @@ app.use(express.json());
 
 /* ================= ROUTES ================= */
 app.use("/api/auth", authRoutes);
-app.use("/api/games", gameRoutes);
+app.use("/api/game", gameRoutes);
 app.use("/api/sidebar", sidebarRoutes);
 app.use("/api/bets", betRoutes);
 app.use("/api/token", tokenRoutes);
@@ -72,6 +73,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/bonus", bonusRoutes);
 app.use("/api/contest", dailyContestRoutes);
 app.use("/api/raffle", raffleRoutes);
+app.use("/api/promotion", promotionRoutes);
 
 // admin api
 app.use("/api/admin", adminRoutes);
