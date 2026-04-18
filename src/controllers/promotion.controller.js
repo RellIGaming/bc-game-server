@@ -23,19 +23,41 @@ export const getDepositTiers = async (req, res) => {
 
 export const getPromotionTabs = async (req, res) => {
   try {
-    const categories = await prisma.promotion.findMany({
+    const promotions = await prisma.promotion.findMany({
       select: { categories: true }
     });
 
+    console.log("RAW PROMOS:", promotions); // 🔥 DEBUG
+
     const unique = new Set(["All"]);
 
-    categories.forEach(p => {
-      p.categories.forEach(c => unique.add(c));
-    });
+    for (const p of promotions) {
+      let cats = p.categories;
 
-    res.json(Array.from(unique));
+      // 🔥 HARD FIX (handles all cases)
+      if (!cats) continue;
+
+      if (typeof cats === "string") {
+        cats = cats.replace(/[{}"]/g, "").split(",");
+      }
+
+      if (Array.isArray(cats)) {
+        cats.forEach(c => {
+          if (c && c.trim()) {
+            unique.add(c.trim());
+          }
+        });
+      }
+    }
+
+    const result = Array.from(unique);
+
+    console.log("TABS RESULT:", result); // 🔥 DEBUG
+
+    res.json(result);
 
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: err.message });
   }
 };
