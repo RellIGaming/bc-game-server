@@ -1,5 +1,103 @@
 import prisma from "../prisma.js";
 import { updateBalance } from "../service/wallet.service.js";
+import { convertToBDT } from "../utils/convertCurrency.js";
+import { sendAgentNotification } from "../utils/socket.js";
+import { nanoid } from "nanoid";
+
+
+export const FRONTEND_URL="https://bc-game-client.onrender.com"
+export const requestDeposit = async (req, res) => {
+  try {
+    const { currency, amount, method, network } = req.body;
+
+   const allowedCurrencies = ["BDT", "INR", "PKR", "USD"];
+
+    if (!allowedCurrencies.includes(currency)) {
+      return res.status(400).json({ message: "Invalid currency" });
+    }
+    
+    if (!amount || !method) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    // ✅ CONVERT TO BDT
+   const amountBDT = convertToBDT(amount, currency);
+
+    const deposit = await prisma.deposit.create({
+      data: {
+        orderId: "ORD-" + nanoid(10),
+        userId: req.user.id,
+        txId: "TXN-" + nanoid(10),
+        currency,
+        amount,
+        amountBDT,
+        // originalCurrency: currency,
+        // originalAmount: amount,
+
+        method,
+        network,
+        status: "PENDING"
+      }
+    });
+
+    const agents = await prisma.user.findMany({
+      where: { role: "agent" }
+    });
+
+    for (const agent of agents) {
+      const notification = await prisma.notification.create({
+        data: {
+          agentId: agent.id,
+          type: "deposit",
+          message: `New deposit request ৳${amountBDT}`,
+          read: false
+        }
+      });
+
+      sendAgentNotification(agent.id, notification);
+    }
+
+    res.json({
+      message: "Deposit request created",
+      deposit,
+      paymentUrl: `${FRONTEND_URL}/payment-gateway?orderId=${deposit.orderId}&amount=${amount}&currency=${currency}&method=${method}`
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const confirmCryptoDeposit = async (req, res) => {
+
+  const { depositId, txHash } = req.body
+
+  const deposit = await prisma.deposit.findUnique({
+    where: { id: depositId }
+  })
+
+  const verified = await verifyCryptoTx(txHash)
+
+  if (!verified)
+    return res.status(400).json({
+      message: "Invalid transaction"
+    })
+
+  await prisma.deposit.update({
+    where: { id: depositId },
+    data: {
+      txHash,
+      status: "APPROVED"
+    }
+  })
+  req.io.to(`user-${deposit.userId}`).emit("deposit-approved", {
+    amount: deposit.amount
+  })
+  await depositQueue.add("credit-wallet", {
+    depositId
+  })
+
+}
 
 // Get all wallets for user
 export const getBalance = async (req, res) => {
@@ -167,18 +265,143 @@ const getCurrencyIcon = (currency) => {
   return map[currency.toUpperCase()] || "/icons/default.png";
 };
 
-export const requestDeposit = async (req, res) => {
-  const { currency, amount, method } = req.body;
+export const requestWithdraw = async (req, res) => {
 
-  const deposit = await prisma.deposit.create({
-    data: {
-      userId: req.user.id,
-      currency,
-      amount,
-      method,
-      status: "PENDING"
+  const { currency, amount, method, account } = req.body;
+
+  if (!amount || !method || !account) {
+    return res.status(400).json({ message: "All fields required" });
+  }
+
+  // ✅ CONVERT TO BDT
+  const amountBDT = convertToBDT(amount, currency);
+
+  const wallet = await prisma.wallet.findUnique({
+    where: {
+      userId_currency: {
+        userId: req.user.id,
+        currency: "BDT"
+      }
     }
   });
 
-  res.json(deposit);
+  if (!wallet || Number(wallet.balance) < amountBDT) {
+    return res.status(400).json({ message: "Insufficient balance" });
+  }
+
+  const withdraw = await prisma.withdrawal.create({
+    data: {
+      orderId: "WD-" + nanoid(10),
+      userId: req.user.id,
+
+      // ✅ STORE ONLY BDT
+      currency: "BDT",
+      amount: amountBDT,
+
+      // optional
+      // originalCurrency: currency,
+      // originalAmount: amount,
+
+      method,
+      account
+    }
+  });
+
+  const agents = await prisma.user.findMany({
+    where: { role: "agent" }
+  });
+
+  for (const agent of agents) {
+    const notification = await prisma.notification.create({
+      data: {
+        userId: req.user.id,
+        agentId: agent.id,
+        type: "withdraw",
+        message: `New withdraw request ৳${amountBDT}`,
+        read: false
+      }
+    });
+
+    sendAgentNotification(agent.id, notification);
+  }
+
+  res.json(withdraw);
+};
+
+export const submitDeposit = async (req, res) => {
+  try {
+    const { orderId, trxId } = req.body;
+
+    // 🔒 1. Validate input
+    if (!orderId || !trxId) {
+      return res.status(400).json({ message: "orderId & trxId required" });
+    }
+
+    // 🔎 2. Find deposit
+    const deposit = await prisma.deposit.findUnique({
+      where: { orderId }
+    });
+
+    if (!deposit) {
+      return res.status(404).json({ message: "Deposit not found" });
+    }
+
+    // 🚫 3. Prevent resubmission
+    if (deposit.status !== "PENDING") {
+      return res.status(400).json({
+        message: `Deposit already ${deposit.status}`
+      });
+    }
+
+    // 🔁 4. Prevent duplicate trxId (IMPORTANT)
+    const existingTrx = await prisma.deposit.findFirst({
+      where: { txId: trxId }
+    });
+
+    if (existingTrx) {
+      return res.status(400).json({
+        message: "This transaction ID already used"
+      });
+    }
+
+    // 🧠 5. Update deposit
+    const updated = await prisma.deposit.update({
+      where: { orderId },
+      data: {
+        txId: trxId,
+        status: "SUBMITTED",
+        submittedAt: new Date() // optional field (recommended)
+      }
+    });
+
+    // 🔔 6. Notify ALL agents
+    const agents = await prisma.user.findMany({
+      where: { role: "agent" }
+    });
+
+    for (const agent of agents) {
+      const notification = await prisma.notification.create({
+        data: {
+          agentId: agent.id,
+          userId: deposit.userId,
+          type: "deposit",
+          message: `Deposit submitted ৳${deposit.amountBDT} | TRX: ${trxId}`,
+          read: false
+        }
+      });
+
+      // 🔥 realtime push
+      sendAgentNotification(agent.id, notification);
+    }
+
+    // 📤 7. Response
+    res.json({
+      message: "Deposit submitted successfully",
+      deposit: updated
+    });
+
+  } catch (err) {
+    console.error("Submit Deposit Error:", err);
+    res.status(500).json({ message: err.message });
+  }
 };

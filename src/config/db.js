@@ -12,16 +12,16 @@ const { Pool } = pkg;
 //   port: process.env.DB_PORT,
 // });
 // for local site postgres
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-// for deploy site postgres
 // const pool = new Pool({
 //   connectionString: process.env.DATABASE_URL,
-//   ssl: {
-//     rejectUnauthorized: false,
-//   },
 // });
+// for deploy site postgres
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
 
 export const connectDB = async () => {
   try {

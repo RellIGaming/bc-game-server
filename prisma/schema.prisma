@@ -120,6 +120,7 @@ enum CrashBetStatus {
 
 enum DepositStatus {
   PENDING
+  SUBMITTED
   APPROVED
   REJECTED
 }
@@ -440,6 +441,9 @@ model Deposit {
   proof     String?
 
   status DepositStatus @default(PENDING)
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  rejectedAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

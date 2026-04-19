@@ -13,10 +13,13 @@ import {
 } from "../controllers/bonus.controller.js";
 
 import { protect } from "../middleware/auth.middleware.js";
+import { getActiveDepositBonus } from "../controllers/depositBonus.controller.js";
 
 const router = express.Router();
 
 /* ================= BONUS DASHBOARD ================= */
+
+router.get("/deposit-bonus", protect, getActiveDepositBonus);
 router.get("/summary", protect, getBonusSummary);
 router.post("/daily/claim", protect, claimDailyBonus);
 router.post("/rakeback/claim", protect, claimRakeback);

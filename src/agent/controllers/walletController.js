@@ -566,7 +566,7 @@ export const approveDeposit = async (req, res) => {
                 data: {
                     userId: deposit.userId,
                     type: "deposit-approved",
-                    message: `Deposit approved ৳${deposit.amount}`
+                    message: `Deposit approved ৳${deposit.amount}, ${orderId}`
                 }
             });
 

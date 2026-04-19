@@ -15,8 +15,6 @@ import matchRoutes from "./routes/match.routes.js";
 import leaderboardRoutes from "./routes/leaderboard.routes.js";
 import sportsRoutes from "./routes/sports.routes.js";
 import walletRoutes from "./routes/wallet.routes.js";
-import depositRoutes from "./routes/deposit.routes.js";
-import withdrawRoutes from "./routes/withdraw.routes.js";
 import vaultRoutes from "./routes/vault.routes.js";
 import swapRoutes from "./routes/swap.routes.js";
 import referralRoutes from "./routes/referral.routes.js";
@@ -63,8 +61,6 @@ app.use('api/leaderboard', leaderboardRoutes);
 app.use('/api/sports', sportsRoutes);
 app.use('/api/markets', marketRoutes)
 app.use("/api/wallet", walletRoutes);
-app.use("/api/deposit", depositRoutes);
-app.use("/api/withdraw", withdrawRoutes);
 app.use("/api/vault", vaultRoutes);
 app.use("/api/swap", swapRoutes);
 app.use("/api/referral", referralRoutes);
