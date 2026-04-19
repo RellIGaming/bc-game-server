@@ -27,14 +27,17 @@ export const getPromotionTabs = async (req, res) => {
       select: { categories: true }
     });
 
-    console.log("RAW PROMOS:", promotions); // 🔥 DEBUG
+    console.log("RAW PROMOS:", promotions);
 
-    const unique = new Set(["All"]);
+    // ✅ Default tabs (ALWAYS present)
+    const defaultTabs = ["Casino", "Sports", "Rellbet Exclusive"];
 
+    const unique = new Set();
+
+    // 🔹 Extract from DB
     for (const p of promotions) {
       let cats = p.categories;
 
-      // 🔥 HARD FIX (handles all cases)
       if (!cats) continue;
 
       if (typeof cats === "string") {
@@ -43,16 +46,18 @@ export const getPromotionTabs = async (req, res) => {
 
       if (Array.isArray(cats)) {
         cats.forEach(c => {
-          if (c && c.trim()) {
-            unique.add(c.trim());
-          }
+          if (c?.trim()) unique.add(c.trim());
         });
       }
     }
 
-    const result = Array.from(unique);
+    // 🔹 Merge defaults + DB
+    const result = [
+      "All",
+      ...new Set([...defaultTabs, ...Array.from(unique)])
+    ];
 
-    console.log("TABS RESULT:", result); // 🔥 DEBUG
+    console.log("TABS RESULT:", result);
 
     res.json(result);
 

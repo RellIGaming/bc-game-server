@@ -2,19 +2,23 @@ import CryptoJS from "crypto-js";
 
 export const AES_KEY = "68b074393ec7c5a975856a90bd6fdf47";
 
+// ✅ ENCRYPT
 export function encrypt(data) {
   const key = CryptoJS.enc.Utf8.parse(AES_KEY);
 
-  return CryptoJS.AES.encrypt(
-    JSON.stringify(data),
+  const encrypted = CryptoJS.AES.encrypt(
+    CryptoJS.enc.Utf8.parse(JSON.stringify(data)), // ✅ FIX HERE
     key,
     {
       mode: CryptoJS.mode.ECB,
       padding: CryptoJS.pad.Pkcs7,
     }
-  ).toString();
+  );
+
+  return encrypted.toString(); // Base64
 }
 
+// ✅ DECRYPT
 export function decrypt(cipherText) {
   try {
     const key = CryptoJS.enc.Utf8.parse(AES_KEY);
@@ -26,7 +30,7 @@ export function decrypt(cipherText) {
 
     const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
 
-    console.log("DECRYPT RAW:", decryptedText); // 👈 VERY IMPORTANT
+    console.log("DECRYPT RAW:", decryptedText);
 
     if (!decryptedText) {
       throw new Error("Decryption failed (empty result)");

@@ -69,6 +69,7 @@ router.post("/callback", async (req, res) => {
 });
 
 router.get("/test-encrypt", (req, res) => {
+  
   const payload = encrypt({
     agency_uid: AGENCY_UID,
     member_account: "player001",
