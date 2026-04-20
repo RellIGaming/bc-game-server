@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 
 
 export const FRONTEND_URL="https://bc-game-client.onrender.com"
+
 export const requestDeposit = async (req, res) => {
   try {
     const { currency, amount, method, network } = req.body;
@@ -64,6 +65,84 @@ export const requestDeposit = async (req, res) => {
     });
 
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const submitDeposit = async (req, res) => {
+  try {
+    const { orderId, trxId } = req.body;
+
+    // 🔒 1. Validate input
+    if (!orderId || !trxId) {
+      return res.status(400).json({ message: "orderId & trxId required" });
+    }
+
+    // 🔎 2. Find deposit
+    const deposit = await prisma.deposit.findUnique({
+      where: { orderId }
+    });
+
+    if (!deposit) {
+      return res.status(404).json({ message: "Deposit not found" });
+    }
+
+    // 🚫 3. Prevent resubmission
+    if (deposit.status !== "PENDING") {
+      return res.status(400).json({
+        message: `Deposit already ${deposit.status}`
+      });
+    }
+
+    // 🔁 4. Prevent duplicate trxId (IMPORTANT)
+    const existingTrx = await prisma.deposit.findFirst({
+      where: { txId: trxId }
+    });
+
+    if (existingTrx) {
+      return res.status(400).json({
+        message: "This transaction ID already used"
+      });
+    }
+
+    // 🧠 5. Update deposit
+    const updated = await prisma.deposit.update({
+      where: { orderId },
+      data: {
+        txId: trxId,
+        status: "SUBMITTED",
+        submittedAt: new Date() // optional field (recommended)
+      }
+    });
+
+    // 🔔 6. Notify ALL agents
+    const agents = await prisma.user.findMany({
+      where: { role: "agent" }
+    });
+
+    for (const agent of agents) {
+      const notification = await prisma.notification.create({
+        data: {
+          agentId: agent.id,
+          userId: deposit.userId,
+          type: "deposit",
+          message: `Deposit submitted ৳${deposit.amountBDT} | TRX: ${trxId}`,
+          read: false
+        }
+      });
+
+      // 🔥 realtime push
+      sendAgentNotification(agent.id, notification);
+    }
+
+    // 📤 7. Response
+    res.json({
+      message: "Deposit submitted successfully",
+      deposit: updated
+    });
+
+  } catch (err) {
+    console.error("Submit Deposit Error:", err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -328,80 +407,3 @@ export const requestWithdraw = async (req, res) => {
   res.json(withdraw);
 };
 
-export const submitDeposit = async (req, res) => {
-  try {
-    const { orderId, trxId } = req.body;
-
-    // 🔒 1. Validate input
-    if (!orderId || !trxId) {
-      return res.status(400).json({ message: "orderId & trxId required" });
-    }
-
-    // 🔎 2. Find deposit
-    const deposit = await prisma.deposit.findUnique({
-      where: { orderId }
-    });
-
-    if (!deposit) {
-      return res.status(404).json({ message: "Deposit not found" });
-    }
-
-    // 🚫 3. Prevent resubmission
-    if (deposit.status !== "PENDING") {
-      return res.status(400).json({
-        message: `Deposit already ${deposit.status}`
-      });
-    }
-
-    // 🔁 4. Prevent duplicate trxId (IMPORTANT)
-    const existingTrx = await prisma.deposit.findFirst({
-      where: { txId: trxId }
-    });
-
-    if (existingTrx) {
-      return res.status(400).json({
-        message: "This transaction ID already used"
-      });
-    }
-
-    // 🧠 5. Update deposit
-    const updated = await prisma.deposit.update({
-      where: { orderId },
-      data: {
-        txId: trxId,
-        status: "SUBMITTED",
-        submittedAt: new Date() // optional field (recommended)
-      }
-    });
-
-    // 🔔 6. Notify ALL agents
-    const agents = await prisma.user.findMany({
-      where: { role: "agent" }
-    });
-
-    for (const agent of agents) {
-      const notification = await prisma.notification.create({
-        data: {
-          agentId: agent.id,
-          userId: deposit.userId,
-          type: "deposit",
-          message: `Deposit submitted ৳${deposit.amountBDT} | TRX: ${trxId}`,
-          read: false
-        }
-      });
-
-      // 🔥 realtime push
-      sendAgentNotification(agent.id, notification);
-    }
-
-    // 📤 7. Response
-    res.json({
-      message: "Deposit submitted successfully",
-      deposit: updated
-    });
-
-  } catch (err) {
-    console.error("Submit Deposit Error:", err);
-    res.status(500).json({ message: err.message });
-  }
-};

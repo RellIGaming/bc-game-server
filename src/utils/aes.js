@@ -1,44 +1,16 @@
-import CryptoJS from "crypto-js";
+import crypto from "crypto";
 
-export const AES_KEY = "68b074393ec7c5a975856a90bd6fdf47";
+const SECRET = "dc279a27da63d49427c4de2e47d9b8c2"; // 32 chars
 
-// ✅ ENCRYPT
 export function encrypt(data) {
-  const key = CryptoJS.enc.Utf8.parse(AES_KEY);
+  const key = Buffer.from(SECRET); // ✅ important
 
-  const encrypted = CryptoJS.AES.encrypt(
-    CryptoJS.enc.Utf8.parse(JSON.stringify(data)), // ✅ FIX HERE
-    key,
-    {
-      mode: CryptoJS.mode.ECB,
-      padding: CryptoJS.pad.Pkcs7,
-    }
-  );
+  const cipher = crypto.createCipheriv("aes-256-ecb", key, null);
 
-  return encrypted.toString(); // Base64
-}
+  cipher.setAutoPadding(true);
 
-// ✅ DECRYPT
-export function decrypt(cipherText) {
-  try {
-    const key = CryptoJS.enc.Utf8.parse(AES_KEY);
+  let encrypted = cipher.update(JSON.stringify(data), "utf8", "base64");
+  encrypted += cipher.final("base64");
 
-    const bytes = CryptoJS.AES.decrypt(cipherText, key, {
-      mode: CryptoJS.mode.ECB,
-      padding: CryptoJS.pad.Pkcs7,
-    });
-
-    const decryptedText = bytes.toString(CryptoJS.enc.Utf8);
-
-    console.log("DECRYPT RAW:", decryptedText);
-
-    if (!decryptedText) {
-      throw new Error("Decryption failed (empty result)");
-    }
-
-    return JSON.parse(decryptedText);
-  } catch (err) {
-    console.error("DECRYPT ERROR:", err.message);
-    throw err;
-  }
+  return encrypted;
 }

@@ -1,87 +1,74 @@
 import express from "express";
 import { getGames } from "../controllers/game.controller.js";
-import { AGENCY_UID, launchGame } from "../service/gameService.js";
-import { decrypt, encrypt } from "../utils/aes.js";
+import { launchGame } from "../service/gameService.js";
+import { encrypt } from "../utils/aes.js";
 
 const router = express.Router();
 
 router.get("/", getGames); 
 // /api/games?category=originals
-router.get("/v1", async (req, res) => {
+router.get("/play", async (req, res) => {
   try {
-    const { username, game_uid } = req.query;
+    const user = {
+      id: "23213",
+    };
 
-    if (!username || !game_uid) {
-      return res.status(400).json({
-        error: "username and game_uid required",
-      });
-    }
-
-    const user = { username };
-
-    const url = await launchGame(user, game_uid);
+    const url = await launchGame(user);
 
     res.json({ url });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Game launch failed" });
+    res.status(500).json({ error: err.message });
   }
 });
 
 router.post("/callback", async (req, res) => {
   try {
-    const { payload, agency_uid, timestamp } = req.body;
+    const data = req.body;
 
-    if (!payload) {
-      return res.json({ code: 1, msg: "missing payload" });
-    }
+    console.log("CALLBACK:", data);
 
-    const data = decrypt(payload);
+    const bet = Number(data.bet_amount);
+    const win = Number(data.win_amount);
 
-    console.log("Callback data:", data);
-
-    const betAmount = Number(data.bet_amount || 0);
-    const winAmount = Number(data.win_amount || 0);
-
-    // 👉 TODO: replace with DB (Prisma)
-    let currentBalance = 1000;
-
-    const newBalance = currentBalance - betAmount + winAmount;
-
-    const responsePayload = encrypt({
-      credit_amount: newBalance.toString(),
-      timestamp: Date.now().toString(),
-    });
+    const newBalance = 1000 - bet + win;
 
     res.json({
-      code: 0,
-      msg: "",
-      payload: responsePayload,
+      credit_amount: newBalance,
+      timestamp: Date.now(),
     });
   } catch (err) {
     console.error(err);
 
     res.json({
-      code: 1,
-      msg: "error",
+      credit_amount: -1,
+      error: "error",
     });
   }
 });
 
 router.get("/test-encrypt", (req, res) => {
-  
-  const payload = encrypt({
-    agency_uid: AGENCY_UID,
-    member_account: "player001",
-    game_uid: "1",
-    timestamp: Date.now().toString(),
-    credit_amount: "100",
-    currency_code: "USD",
+  const payloadData = {
+    user_id: "23213",
+    balance: 500,
+    game_uid: "784512",
+    token: "3753715335206ddb72c9825777933645",
+    timestamp: Date.now(),
+    return: "https://bc-game-server.onrender.com/return",
+    callback: "https://bc-game-server.onrender.com/api/game/callback",
+    currency_code: "BDT",
     language: "en",
-    platform: 1,
-  });
+  };
 
-  res.json({ payload });
+  const payload = encrypt(payloadData);
+
+  console.log("RAW PAYLOAD:", payloadData);
+  console.log("ENCRYPTED:", payload);
+
+  res.json({
+    raw: payloadData,
+    encrypted: payload,
+  });
 });
 
 export default router;

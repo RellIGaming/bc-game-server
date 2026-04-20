@@ -1,38 +1,35 @@
 import axios from "axios";
 import { encrypt } from "../utils/aes.js";
 
-export const BASE_URL = "https://jsgame.live";
-//export const AGENCY_UID = "8dee1e401b87408cca3ca813c2250cb4";
-export const AGENCY_UID = "8a61291b65f8d2acfafe9ed9aca87846";
+const BASE_URL = "https://igamingapis.live/api/v1";
+const TOKEN = "3753715335206ddb72c9825777933645";
 
-export async function launchGame(user, game_uid = "1") {
-  const timestamp = Date.now().toString();
-
-  const payloadData = {
-    agency_uid: AGENCY_UID,
-    member_account: user.username,
-    game_uid: game_uid,
-    timestamp: timestamp,
-    credit_amount: "100",
-    currency_code: "USD",
+export async function launchGame(user) {
+  const payload = {
+    user_id: user.id,
+    balance: 500, // number
+    game_uid: "784512",
+    token: TOKEN,
+    timestamp: Date.now(), // number
+    return: "https://bc-game-server.onrender.com/return",
+    callback: "https://bc-game-server.onrender.com/api/game/callback",
+    currency_code: "BDT",
     language: "en",
-  platform: "1",
-    callback_url: "https://bc-game-server.onrender.com/api/game/callback",
   };
 
-  const encryptedPayload = encrypt(payloadData);
+  const encryptedPayload = encrypt(payload);
 
-  const response = await axios.post(`${BASE_URL}/game/v1`, {
-    agency_uid: AGENCY_UID,
-    timestamp: timestamp,
-    payload: encryptedPayload,
-  });
+  const url = `${BASE_URL}?payload=${encodeURIComponent(encryptedPayload)}&token=${TOKEN}`;
 
-  console.log("FULL RESPONSE:", response.data);
+  console.log("FINAL URL:", url); // 👈 DEBUG
+
+  const response = await axios.get(url);
+
+  console.log("SOFTAPI RESPONSE:", response.data);
 
   if (response.data.code !== 0) {
-    throw new Error(`Provider error: ${response.data.code} - ${response.data.msg}`);
+    throw new Error(response.data.msg);
   }
 
-  return response.data.payload?.game_launch_url;
+  return response.data.data.url;
 }
