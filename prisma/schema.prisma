@@ -171,7 +171,9 @@ model User {
   profileImage     String?   @map("profile_image") @db.VarChar(255)
   deposits         Deposit[] @relation("UserDeposits")
   approvedDeposits Deposit[] @relation("AgentDeposits")
-
+  emailOtp        String?
+  emailOtpExpiry  DateTime?
+  isEmailVerified Boolean @default(false)
   withdrawals         Withdrawal[]
   approvedWithdrawals Withdrawal[]        @relation("AgentWithdrawals")
   agentNotifications  Notification[]      @relation("AgentNotifications")
@@ -408,7 +410,7 @@ model Withdrawal {
 
   account String // wallet address / upi id / phone
   amount  Decimal @db.Decimal(38, 2)
-
+  isOtpVerified Boolean @default(false)
   note String?
 
   status WithdrawalStatus @default(PENDING)

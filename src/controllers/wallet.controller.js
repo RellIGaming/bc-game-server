@@ -3,26 +3,27 @@ import { updateBalance } from "../service/wallet.service.js";
 import { convertToBDT } from "../utils/convertCurrency.js";
 import { sendAgentNotification } from "../utils/socket.js";
 import { nanoid } from "nanoid";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
 
-
-export const FRONTEND_URL="https://bc-game-client.onrender.com"
+export const FRONTEND_URL = "https://bc-game-client.onrender.com"
 
 export const requestDeposit = async (req, res) => {
   try {
     const { currency, amount, method, network } = req.body;
 
-   const allowedCurrencies = ["BDT", "INR", "PKR", "USD"];
+    const allowedCurrencies = ["BDT", "INR", "PKR", "USD"];
 
     if (!allowedCurrencies.includes(currency)) {
       return res.status(400).json({ message: "Invalid currency" });
     }
-    
+
     if (!amount || !method) {
       return res.status(400).json({ message: "Missing fields" });
     }
 
     // ✅ CONVERT TO BDT
-   const amountBDT = convertToBDT(amount, currency);
+    const amountBDT = convertToBDT(amount, currency);
 
     const deposit = await prisma.deposit.create({
       data: {
@@ -230,6 +231,73 @@ export const deposit = async (req, res) => {
   }
 };
 
+
+export const sendWithdrawOtp = async (req, res) => {
+  try {
+    const user = req.user;
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailOtp: otp,
+        emailOtpExpiry: new Date(Date.now() + 5 * 60 * 1000), // 5 min
+      },
+    });
+
+    // ✅ send email
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      to: user.email,
+      subject: "Withdraw OTP Verification",
+      text: `Your OTP is ${otp}`,
+    });
+
+    res.json({ message: "OTP sent" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+};
+export const verifyWithdrawOtp = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+
+    if (!user.emailOtp || user.emailOtp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    if (new Date() > user.emailOtpExpiry) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        emailOtp: null,
+        emailOtpExpiry: null,
+      },
+    });
+
+    res.json({ message: "Email verified" });
+
+  } catch (err) {
+    res.status(500).json({ message: "Verification failed" });
+  }
+};
 // Withdraw cash
 export const withdraw = async (req, res) => {
   try {
@@ -344,21 +412,137 @@ const getCurrencyIcon = (currency) => {
   return map[currency.toUpperCase()] || "/icons/default.png";
 };
 
+// export const requestWithdraw = async (req, res) => {
+
+//   const { currency, amount, method, account } = req.body;
+
+//   if (!amount || !method || !account) {
+//     return res.status(400).json({ message: "All fields required" });
+//   }
+//   const user = await prisma.user.findUnique({
+//     where: { id: req.user.id },
+//   });
+
+//   if (!user.isEmailVerified) {
+//     return res.status(403).json({
+//       message: "Please verify your email before withdrawal",
+//     });
+//   }
+//   // ✅ CONVERT TO BDT
+//   const amountBDT = convertToBDT(amount, currency);
+
+//   const wallet = await prisma.wallet.findUnique({
+//     where: {
+//       userId_currency: {
+//         userId: req.user.id,
+//         currency: "BDT"
+//       }
+//     }
+//   });
+
+//   if (!wallet || Number(wallet.balance) < amountBDT) {
+//     return res.status(400).json({ message: "Insufficient balance" });
+//   }
+
+//   const withdraw = await prisma.withdrawal.create({
+//     data: {
+//       orderId: "WD-" + nanoid(10),
+//       userId: req.user.id,
+
+//       // ✅ STORE ONLY BDT
+//       currency: "BDT",
+//       amount: amountBDT,
+
+//       // optional
+//       // originalCurrency: currency,
+//       // originalAmount: amount,
+
+//       method,
+//       account
+//     }
+//   });
+
+//   const agents = await prisma.user.findMany({
+//     where: { role: "agent" }
+//   });
+
+//   for (const agent of agents) {
+//     const notification = await prisma.notification.create({
+//       data: {
+//         userId: req.user.id,
+//         agentId: agent.id,
+//         type: "withdraw",
+//         message: `New withdraw request ৳${amountBDT}`,
+//         read: false
+//       }
+//     });
+
+//     sendAgentNotification(agent.id, notification);
+//   }
+
+//   res.json(withdraw);
+// };
+
 export const requestWithdraw = async (req, res) => {
+  const { currency, amount, method, account, otp } = req.body;
 
-  const { currency, amount, method, account } = req.body;
-
-  if (!amount || !method || !account) {
+  if (!amount || !method || !account || !otp) {
     return res.status(400).json({ message: "All fields required" });
   }
 
-  // ✅ CONVERT TO BDT
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id }
+  });
+
+  // ✅ EMAIL VERIFIED
+  if (!user.isEmailVerified) {
+    return res.status(403).json({
+      message: "Verify your email first"
+    });
+  }
+
+  // ✅ OTP CHECK
+  if (user.emailOtp !== otp) {
+    return res.status(400).json({ message: "Invalid OTP" });
+  }
+
+  if (new Date() > user.emailOtpExpiry) {
+    return res.status(400).json({ message: "OTP expired" });
+  }
+
+  // clear OTP
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      emailOtp: null,
+      emailOtpExpiry: null
+    }
+  });
+
+  // ✅ DAILY LIMIT (ANTI FRAUD)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const existing = await prisma.withdrawal.findFirst({
+    where: {
+      userId: user.id,
+      createdAt: { gte: today }
+    }
+  });
+
+  if (existing) {
+    return res.status(400).json({
+      message: "Only 1 withdrawal allowed per day"
+    });
+  }
+
+  // convert
   const amountBDT = convertToBDT(amount, currency);
 
   const wallet = await prisma.wallet.findUnique({
     where: {
       userId_currency: {
-        userId: req.user.id,
+        userId: user.id,
         currency: "BDT"
       }
     }
@@ -371,39 +555,27 @@ export const requestWithdraw = async (req, res) => {
   const withdraw = await prisma.withdrawal.create({
     data: {
       orderId: "WD-" + nanoid(10),
-      userId: req.user.id,
-
-      // ✅ STORE ONLY BDT
+      userId: user.id,
       currency: "BDT",
       amount: amountBDT,
-
-      // optional
-      // originalCurrency: currency,
-      // originalAmount: amount,
-
       method,
-      account
+      account,
+      isOtpVerified: true
     }
   });
 
+  // 🔥 REAL-TIME SOCKET
   const agents = await prisma.user.findMany({
     where: { role: "agent" }
   });
 
   for (const agent of agents) {
-    const notification = await prisma.notification.create({
-      data: {
-        userId: req.user.id,
-        agentId: agent.id,
-        type: "withdraw",
-        message: `New withdraw request ৳${amountBDT}`,
-        read: false
-      }
+    sendAgentNotification(agent.id, {
+      type: "withdraw",
+      message: `New withdraw ৳${amountBDT}`,
+      withdrawId: withdraw.id
     });
-
-    sendAgentNotification(agent.id, notification);
   }
 
   res.json(withdraw);
 };
-
