@@ -412,7 +412,7 @@ model Withdrawal {
   amount  Decimal @db.Decimal(38, 2)
   isOtpVerified Boolean @default(false)
   note String?
-
+  accountHolderName String 
   status WithdrawalStatus @default(PENDING)
 
   createdAt DateTime @default(now())

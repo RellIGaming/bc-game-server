@@ -241,14 +241,16 @@ export const sendWithdrawOtp = async (req, res) => {
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        emailOtp: otp,
-        emailOtpExpiry: new Date(Date.now() + 5 * 60 * 1000), // 5 min
+        withdrawOtp: otp,
+        withdrawOtpExpiry: new Date(Date.now() + 5 * 60 * 1000),
+        isWithdrawVerified: false // reset
       },
     });
 
-    // ✅ send email
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -261,7 +263,7 @@ export const sendWithdrawOtp = async (req, res) => {
       text: `Your OTP is ${otp}`,
     });
 
-    res.json({ message: "OTP sent" });
+    res.json({ message: "OTP sent to your email" });
 
   } catch (err) {
     console.error(err);
@@ -271,28 +273,29 @@ export const sendWithdrawOtp = async (req, res) => {
 export const verifyWithdrawOtp = async (req, res) => {
   try {
     const { otp } = req.body;
+
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
     });
 
-    if (!user.emailOtp || user.emailOtp !== otp) {
+    if (!user.withdrawOtp || user.withdrawOtp !== otp) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    if (new Date() > user.emailOtpExpiry) {
+    if (new Date() > user.withdrawOtpExpiry) {
       return res.status(400).json({ message: "OTP expired" });
     }
 
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        isEmailVerified: true,
-        emailOtp: null,
-        emailOtpExpiry: null,
+        isWithdrawVerified: true,
+        withdrawOtp: null,
+        withdrawOtpExpiry: null,
       },
     });
 
-    res.json({ message: "Email verified" });
+    res.json({ message: "Withdraw verification successful" });
 
   } catch (err) {
     res.status(500).json({ message: "Verification failed" });
@@ -484,42 +487,24 @@ const getCurrencyIcon = (currency) => {
 // };
 
 export const requestWithdraw = async (req, res) => {
-  const { currency, amount, method, account, otp } = req.body;
+ const { currency, amount, method, account, accountHolderName } = req.body;
 
-  if (!amount || !method || !account || !otp) {
-    return res.status(400).json({ message: "All fields required" });
-  }
+if (!amount || !method || !account || !accountHolderName) {
+  return res.status(400).json({ message: "All fields required" });
+}
 
   const user = await prisma.user.findUnique({
     where: { id: req.user.id }
   });
 
-  // ✅ EMAIL VERIFIED
-  if (!user.isEmailVerified) {
+  // ✅ MUST VERIFY OTP FIRST
+  if (!user.isWithdrawVerified) {
     return res.status(403).json({
-      message: "Verify your email first"
+      message: "Please verify OTP before withdrawal"
     });
   }
 
-  // ✅ OTP CHECK
-  if (user.emailOtp !== otp) {
-    return res.status(400).json({ message: "Invalid OTP" });
-  }
-
-  if (new Date() > user.emailOtpExpiry) {
-    return res.status(400).json({ message: "OTP expired" });
-  }
-
-  // clear OTP
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      emailOtp: null,
-      emailOtpExpiry: null
-    }
-  });
-
-  // ✅ DAILY LIMIT (ANTI FRAUD)
+  // ✅ DAILY LIMIT
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -536,7 +521,6 @@ export const requestWithdraw = async (req, res) => {
     });
   }
 
-  // convert
   const amountBDT = convertToBDT(amount, currency);
 
   const wallet = await prisma.wallet.findUnique({
@@ -560,11 +544,19 @@ export const requestWithdraw = async (req, res) => {
       amount: amountBDT,
       method,
       account,
-      isOtpVerified: true
+      accountHolderName
     }
   });
 
-  // 🔥 REAL-TIME SOCKET
+  // ✅ RESET VERIFICATION AFTER SUCCESS
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      isWithdrawVerified: false
+    }
+  });
+
+  // 🔥 SOCKET NOTIFICATION
   const agents = await prisma.user.findMany({
     where: { role: "agent" }
   });
