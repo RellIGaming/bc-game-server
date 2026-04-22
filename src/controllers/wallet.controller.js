@@ -112,7 +112,7 @@ export const submitDeposit = async (req, res) => {
       data: {
         txId: trxId,
         status: "SUBMITTED",
-        submittedAt: new Date() // optional field (recommended)
+        submittedAt: new Date() 
       }
     });
 
