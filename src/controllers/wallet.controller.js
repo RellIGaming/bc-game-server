@@ -111,7 +111,7 @@ export const submitDeposit = async (req, res) => {
       where: { orderId },
       data: {
         txId: trxId,
-        status: "SUBMITTED",
+        status: "PENDING",
         submittedAt: new Date() 
       }
     });
