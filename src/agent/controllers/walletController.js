@@ -22,7 +22,11 @@ export const getDepositQueue = async (req, res) => {
     try {
 
         const deposits = await prisma.deposit.findMany({
-            where: { status: "PENDING" },
+            where: {
+                status: {
+                    in: ["PENDING", "SUBMITTED"]
+                }
+            },
             include: {
                 user: {
                     select: {
@@ -566,7 +570,7 @@ export const approveDeposit = async (req, res) => {
                 data: {
                     userId: deposit.userId,
                     type: "deposit-approved",
-                    message: `Deposit approved ৳${deposit.amount}, ${orderId}`
+                    message: `Deposit approved ৳${deposit.amount}, ${deposit.orderId}`
                 }
             });
 
