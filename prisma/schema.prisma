@@ -156,24 +156,24 @@ model User {
   phone    String? @db.VarChar(20)
   password String  @db.VarChar(255)
 
-  role                UserRole  @default(user)
-  isActive            Boolean   @default(true)
-  referredBy          Int?      @map("referred_by")
-  referrer User? @relation("UserReferral", fields: [referredBy], references: [id])
-  referrals User[] @relation("UserReferral")
-  referralCode        String?   @unique @default(cuid()) @map("referral_code")
-  resetPasswordToken  String?   @map("reset_password_token") @db.VarChar(255)
-  resetPasswordExpire DateTime? @map("reset_password_expire")
-  usedReferralCode String? @map("used_referral_code")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") // add @default(now())
-  balance          Decimal   @default(0)
-  profileImage     String?   @map("profile_image") @db.VarChar(255)
-  deposits         Deposit[] @relation("UserDeposits")
-  approvedDeposits Deposit[] @relation("AgentDeposits")
-  emailOtp        String?
-  emailOtpExpiry  DateTime?
-  isEmailVerified Boolean @default(false)
+  role                UserRole            @default(user)
+  isActive            Boolean             @default(true)
+  referredBy          Int?                @map("referred_by")
+  referrer            User?               @relation("UserReferral", fields: [referredBy], references: [id])
+  referrals           User[]              @relation("UserReferral")
+  referralCode        String?             @unique @default(cuid()) @map("referral_code")
+  resetPasswordToken  String?             @map("reset_password_token") @db.VarChar(255)
+  resetPasswordExpire DateTime?           @map("reset_password_expire")
+  usedReferralCode    String?             @map("used_referral_code")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") // add @default(now())
+  balance             Decimal             @default(0)
+  profileImage        String?             @map("profile_image") @db.VarChar(255)
+  deposits            Deposit[]           @relation("UserDeposits")
+  approvedDeposits    Deposit[]           @relation("AgentDeposits")
+  emailOtp            String?
+  emailOtpExpiry      DateTime?
+  isEmailVerified     Boolean             @default(false)
   withdrawals         Withdrawal[]
   approvedWithdrawals Withdrawal[]        @relation("AgentWithdrawals")
   agentNotifications  Notification[]      @relation("AgentNotifications")
@@ -187,27 +187,29 @@ model User {
   vault               Vault?
   rollovers           Rollover[]
   swaps               Swap[]
-  raffleTickets RaffleTicket[]
-  raffleWinners RaffleWinner[]
+  raffleTickets       RaffleTicket[]
+  raffleWinners       RaffleWinner[]
+
   @@index([referredBy])
   @@index([referralCode])
   @@index([usedReferralCode])
   @@index([role])
   @@map("users")
 }
+
 model ChatMessage {
-  id        String   @id @default(cuid())
-  userId    Int?
-  username  String
-  message   String
-  room      String   @default("global")
+  id       String @id @default(cuid())
+  userId   Int?
+  username String
+  message  String
+  room     String @default("global")
 
   // ✅ NEW FIELDS
-  isDeleted Boolean  @default(false)
-  isAdmin   Boolean  @default(false)
+  isDeleted Boolean @default(false)
+  isAdmin   Boolean @default(false)
 
   replyToId String?
-  replyTo   ChatMessage? @relation("Reply", fields: [replyToId], references: [id])
+  replyTo   ChatMessage?  @relation("Reply", fields: [replyToId], references: [id])
   replies   ChatMessage[] @relation("Reply")
 
   createdAt DateTime @default(now())
@@ -215,25 +217,28 @@ model ChatMessage {
   @@index([room, createdAt])
   @@index([userId])
 }
+
 model CommissionRule {
-  id Int @id @default(autoincrement())
+  id       Int    @id @default(autoincrement())
   gameType String
-  rate Int
+  rate     Int
 }
+
 model ReferralProgress {
-  id          Int     @id @default(autoincrement())
-  userId      Int     // referrer
-  friendId    Int     // referred user
-  totalWager  Float   @default(0)
-  unlocked    Float   @default(0)
+  id         Int   @id @default(autoincrement())
+  userId     Int // referrer
+  friendId   Int // referred user
+  totalWager Float @default(0)
+  unlocked   Float @default(0)
 }
+
 model Promotion {
-  id        Int      @id @default(autoincrement())
-  title     String
-  sub       String
-  endsAt    DateTime
-  badge     String?
-  status    String   @default("IN_PROGRESS")
+  id     Int      @id @default(autoincrement())
+  title  String
+  sub    String
+  endsAt DateTime
+  badge  String?
+  status String   @default("IN_PROGRESS")
 
   categories String[] // ["Casino", "Sports"]
 
@@ -242,14 +247,15 @@ model Promotion {
 
   @@map("promotions")
 }
+
 model DailyContest {
   id Int @id @default(autoincrement())
 
-  title        String   @default("Daily Contest")
-  prizePool    Float
-  startDate    DateTime
-  endDate      DateTime
-  isActive     Boolean  @default(true)
+  title     String   @default("Daily Contest")
+  prizePool Float
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -302,25 +308,27 @@ model DailyContestCurrency {
   groupText String
   order     Int
 }
+
 model DepositBonusTier {
-  id    Int    @id @default(autoincrement())
+  id    Int @id @default(autoincrement())
   order Int
 
   percentage Int
   label      String
   minAmount  Decimal @db.Decimal(18, 2)
 
-  maxBonus   Decimal? @db.Decimal(18, 2)
+  maxBonus Decimal? @db.Decimal(18, 2)
 
   createdAt DateTime @default(now())
 
   @@map("deposit_bonus_tiers")
 }
+
 model RaffleRound {
-  id           Int      @id @default(autoincrement())
-  roundId      String   @unique
-  prizePool    Decimal  @default(0)
-  totalTickets Int      @default(0)
+  id           Int     @id @default(autoincrement())
+  roundId      String  @unique
+  prizePool    Decimal @default(0)
+  totalTickets Int     @default(0)
 
   startAt DateTime
   endAt   DateTime
@@ -336,7 +344,7 @@ model RaffleRound {
 model RaffleTicket {
   id Int @id @default(autoincrement())
 
-  userId Int
+  userId  Int
   roundId String
 
   ticketNumber String @unique
@@ -356,11 +364,11 @@ model RaffleTicket {
 }
 
 model RaffleWinner {
-  id        Int    @id @default(autoincrement())
-  roundId   String
-  userId    Int
-  ticketNo  String
-  prize     Float
+  id       Int    @id @default(autoincrement())
+  roundId  String
+  userId   Int
+  ticketNo String
+  prize    Float
 
   user User @relation(fields: [userId], references: [id])
 
@@ -368,6 +376,7 @@ model RaffleWinner {
 
   @@index([roundId])
 }
+
 model ExchangeRate {
   id       Int    @id @default(autoincrement())
   currency String @unique
@@ -408,12 +417,12 @@ model Withdrawal {
   currency String
   method   String // UPI / BKASH / NAGAD / CRYPTO
 
-  account String // wallet address / upi id / phone
-  amount  Decimal @db.Decimal(38, 2)
-  isOtpVerified Boolean @default(false)
-  note String?
-  accountHolderName String 
-  status WithdrawalStatus @default(PENDING)
+  account           String // wallet address / upi id / phone
+  amount            Decimal          @db.Decimal(38, 2)
+  isOtpVerified     Boolean          @default(false)
+  note              String?
+  accountHolderName String
+  status            WithdrawalStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -442,7 +451,7 @@ model Deposit {
   txId      String?
   proof     String?
 
-  status DepositStatus @default(PENDING)
+  status      DepositStatus @default(PENDING)
   submittedAt DateTime?
   approvedAt  DateTime?
   rejectedAt  DateTime?
