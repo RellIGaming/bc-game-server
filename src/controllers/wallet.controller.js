@@ -187,7 +187,10 @@ export const confirmCryptoDeposit = async (req, res) => {
 export const getBalance = async (req, res) => {
   try {
     const wallets = await prisma.wallet.findMany({
-      where: { userId: req.user.id }
+      where: {
+        userId: req.user.id,
+        currency: "BDT"
+      }
     });
 
     const balances = wallets.map(w => {
@@ -398,22 +401,22 @@ export const getSummary = async (req, res) => {
 };
 
 // Helpers
-const isCrypto = (currency) => ["USDT", "BTC", "ETH", "BNB", "TRX", "LTC", "XRP", "USDC", "DOGE", "SOL", "BC", ].includes(currency.toUpperCase());
+const isCrypto = (currency) => ["USDT", "BTC", "ETH", "BNB", "TRX", "LTC", "XRP", "USDC", "DOGE", "SOL", "BC",].includes(currency.toUpperCase());
 
 const getCurrencyIcon = (currency) => {
   const map = {
     INR: "/icons/inr.png",
-    USDT: "https://cryptologos.cc/logos/tether-usdt-logo.png",
-    BTC: "https://cryptologos.cc/logos/bitcoin-btc-logo.png",
-    ETH: "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-    BNB: "https://cryptologos.cc/logos/binance-coin-bnb-logo.png",
-    TRX: "https://cryptologos.cc/logos/tron-trx-logo.png",
-    LTC: "https://cryptologos.cc/logos/litecoin-ltc-logo.png",
-    XRP: "https://cryptologos.cc/logos/xrp-xrp-logo.png",
-    USDC: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
-    DOGE: "https://cryptologos.cc/logos/dogecoin-doge-logo.png",
-    SOL: "https://cryptologos.cc/logos/solana-sol-logo.png",
-    BC: "/icons/bc.png",
+    // USDT: "https://cryptologos.cc/logos/tether-usdt-logo.png",
+    // BTC: "https://cryptologos.cc/logos/bitcoin-btc-logo.png",
+    // ETH: "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+    // BNB: "https://cryptologos.cc/logos/binance-coin-bnb-logo.png",
+    // TRX: "https://cryptologos.cc/logos/tron-trx-logo.png",
+    // LTC: "https://cryptologos.cc/logos/litecoin-ltc-logo.png",
+    // XRP: "https://cryptologos.cc/logos/xrp-xrp-logo.png",
+    // USDC: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
+    // DOGE: "https://cryptologos.cc/logos/dogecoin-doge-logo.png",
+    // SOL: "https://cryptologos.cc/logos/solana-sol-logo.png",
+    // BC: "/icons/bc.png",
     BDT: "/icons/bdt.png"
   };
   return map[currency.toUpperCase()] || "/icons/default.png";
