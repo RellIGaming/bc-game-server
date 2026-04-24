@@ -23,7 +23,7 @@ export const getDepositQueue = async (req, res) => {
 
         const deposits = await prisma.deposit.findMany({
             where: {
-                status: "PENDING",
+                status: { in: ["PENDING", "APPROVED"] },
                 isSubmitted: true
             },
             include: {
@@ -386,11 +386,6 @@ export const approveDeposit = async (req, res) => {
             return res.status(400).json({ message: "Already processed" });
 
         if (!deposit.isSubmitted) {
-            return res.status(400).json({
-                message: "User has not submitted payment"
-            });
-        }
-        if (!deposit.isSubmitted) {
             return res.status(400).json({ message: "User has not submitted payment yet" });
         }
         if (req.user.role !== "agent") {
@@ -581,6 +576,13 @@ export const approveDeposit = async (req, res) => {
                     message: `Deposit approved ৳${deposit.amount}, ${deposit.orderId}`
                 }
             });
+            await tx.notification.create({
+                data: {
+                    agentId: req.user.id,
+                    type: "deposit_approved",
+                    message: `Deposit approved ৳${deposit.amountBDT}`
+                }
+            })
 
         });
         sendUserNotification(deposit.userId, {

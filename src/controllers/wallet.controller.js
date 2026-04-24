@@ -398,7 +398,7 @@ export const getSummary = async (req, res) => {
 };
 
 // Helpers
-const isCrypto = (currency) => ["USDT", "BTC", "ETH", "BNB", "TRX", "LTC", "XRP", "USDC", "DOGE", "SOL", "BC", "BDT"].includes(currency.toUpperCase());
+const isCrypto = (currency) => ["USDT", "BTC", "ETH", "BNB", "TRX", "LTC", "XRP", "USDC", "DOGE", "SOL", "BC", ].includes(currency.toUpperCase());
 
 const getCurrencyIcon = (currency) => {
   const map = {

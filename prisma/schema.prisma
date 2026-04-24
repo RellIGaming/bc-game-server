@@ -168,6 +168,8 @@ model User {
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") // add @default(now())
   balance             Decimal             @default(0)
+  fraudScore Int     @default(0)
+  isBlocked  Boolean @default(false)
   profileImage        String?             @map("profile_image") @db.VarChar(255)
   deposits            Deposit[]           @relation("UserDeposits")
   approvedDeposits    Deposit[]           @relation("AgentDeposits")
@@ -450,7 +452,7 @@ model Deposit {
   txHash    String?
   txId      String?
   proof     String?
-
+  isSubmitted   Boolean  @default(false)
   status      DepositStatus @default(PENDING)
   submittedAt DateTime?
   approvedAt  DateTime?

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "users" ADD COLUMN     "fraudScore" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "isBlocked" BOOLEAN NOT NULL DEFAULT false;
