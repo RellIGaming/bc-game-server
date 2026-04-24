@@ -107,6 +107,7 @@ export const signup = async (req, res) => {
     );
 
     if (exists.rows.length > 0) {
+      await client.query("ROLLBACK"); // 🔥 VERY IMPORTANT
       return res.status(400).json({ message: "User already exists" });
     }
 
