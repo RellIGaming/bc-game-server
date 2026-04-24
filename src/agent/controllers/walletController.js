@@ -23,9 +23,8 @@ export const getDepositQueue = async (req, res) => {
 
         const deposits = await prisma.deposit.findMany({
             where: {
-                status: {
-                    in: ["PENDING", "SUBMITTED"]
-                }
+                status: "PENDING",
+                isSubmitted: true
             },
             include: {
                 user: {
@@ -382,9 +381,18 @@ export const approveDeposit = async (req, res) => {
         if (!deposit)
             return res.status(404).json({ message: "Deposit not found" });
 
+
         if (deposit.status !== "PENDING")
             return res.status(400).json({ message: "Already processed" });
 
+        if (!deposit.isSubmitted) {
+            return res.status(400).json({
+                message: "User has not submitted payment"
+            });
+        }
+        if (!deposit.isSubmitted) {
+            return res.status(400).json({ message: "User has not submitted payment yet" });
+        }
         if (req.user.role !== "agent") {
             return res.status(403).json({ message: "Only agent can approve" });
         }

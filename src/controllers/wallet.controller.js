@@ -29,7 +29,7 @@ export const requestDeposit = async (req, res) => {
       data: {
         orderId: "ORD-" + nanoid(10),
         userId: req.user.id,
-        txId: "TXN-" + nanoid(10),
+        txId: null,
         currency,
         amount,
         amountBDT,
@@ -87,7 +87,11 @@ export const submitDeposit = async (req, res) => {
     if (!deposit) {
       return res.status(404).json({ message: "Deposit not found" });
     }
-
+    if (deposit.isSubmitted) {
+      return res.status(400).json({
+        message: "Already submitted"
+      });
+    }
     // 🚫 3. Prevent resubmission
     if (deposit.status !== "PENDING") {
       return res.status(400).json({
@@ -111,8 +115,8 @@ export const submitDeposit = async (req, res) => {
       where: { orderId },
       data: {
         txId: trxId,
-        status: "SUBMITTED",
-        submittedAt: new Date() 
+        isSubmitted: true,
+        submittedAt: new Date()
       }
     });
 
@@ -487,11 +491,11 @@ const getCurrencyIcon = (currency) => {
 // };
 
 export const requestWithdraw = async (req, res) => {
- const { currency, amount, method, account, accountHolderName } = req.body;
+  const { currency, amount, method, account, accountHolderName } = req.body;
 
-if (!amount || !method || !account || !accountHolderName) {
-  return res.status(400).json({ message: "All fields required" });
-}
+  if (!amount || !method || !account || !accountHolderName) {
+    return res.status(400).json({ message: "All fields required" });
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: req.user.id }
