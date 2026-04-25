@@ -28,10 +28,12 @@ import raffleRoutes from "./routes/raffle.routes.js";
 import promotionRoutes from "./routes/promotion.routes.js";
 
 import path from "path";
+const __dirname = path.resolve();
 
 const app = express();
 
 app.use("/images", express.static(path.join(process.cwd(), "public/images")));
+
 /* ================= MIDDLEWARE ================= */
 app.use(
   cors({
@@ -57,7 +59,7 @@ app.use("/api/sidebar", sidebarRoutes);
 app.use("/api/bets", betRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/matches", matchRoutes);
-app.use('api/leaderboard', leaderboardRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/sports', sportsRoutes);
 app.use('/api/markets', marketRoutes)
 app.use("/api/wallet", walletRoutes);
@@ -82,6 +84,12 @@ app.use("/api/admin/wallet", adminWalletRoutes);
 app.use("/api/agent", agentWalletRoutes);
 
 
+
+app.use(express.static(path.join(__dirname, "dist")));
+
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
 
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {

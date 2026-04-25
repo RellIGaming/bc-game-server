@@ -2,21 +2,30 @@
 import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
   auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS,
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 });
-
+transporter.verify((err) => {
+  if (err) {
+    console.error("Mail config error:", err);
+  } else {
+    console.log("Mail server ready ✅");
+  }
+});
 /* ================= SEND MAIL ================= */
-export const sendMail = async (to, subject, text) => {
+export const sendMail = async (to, subject, text, html) => {
   try {
     await transporter.sendMail({
-      from: `"Game App" <${process.env.MAIL_USER}>`,
+      from: `"Game App" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       text,
+      html, // ✅ now valid
     });
   } catch (error) {
     console.error("Mail Error:", error.message);

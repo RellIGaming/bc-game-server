@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes, createHash } from "crypto";
 import { generateToken } from "../utils/generateToken.js";
 import { nanoid } from "nanoid";
+import { sendMail } from "../config/mail.js";
 
 /* ================= SIGN UP ================= */
 // export const signup = async (req, res) => {
@@ -396,9 +397,29 @@ export const forgotPassword = async (req, res) => {
       [hashed, expireTime, email]
     );
 
-    console.log("Reset Token:", resetToken);
+    const resetUrl = `https://bc-game-client.onrender.com/reset-password/${resetToken}`;
 
-    res.json({ message: "Reset link sent" });
+    await sendMail(
+      email,
+      "Reset Your Password",
+      `Reset link: ${resetUrl}`,
+      `
+    <h2>Password Reset</h2>
+    <p>Click below to reset your password:</p>
+    <a href="${resetUrl}" style="
+      display:inline-block;
+      padding:10px 15px;
+      background:#4CAF50;
+      color:#fff;
+      text-decoration:none;
+      border-radius:5px;
+    ">Reset Password</a>
+    <p>This link expires in 15 minutes.</p>
+  `
+    );
+
+    res.json({ message: "Reset link sent 📩" });
+
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
