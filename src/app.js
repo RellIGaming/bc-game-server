@@ -83,10 +83,6 @@ app.use("/api/admin/wallet", adminWalletRoutes);
 // agent api
 app.use("/api/agent", agentWalletRoutes);
 
-
-
-
-
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
