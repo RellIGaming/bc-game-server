@@ -216,6 +216,7 @@ RETURNING *`,
     res.status(201).json({
       token: generateToken(user.id),
       user,
+      balance: Number(user.balance).toFixed(2),
       wallets: walletsResult.rows,
       referralCode: user.referral_code, // ✅ return it
       referralLink: `https://bc-game-client.onrender.com/i-${user.referral_code}` // ✅ ready for frontend
@@ -243,7 +244,10 @@ export const signin = async (req, res) => {
        WHERE email = $1 OR username = $1 OR phone = $1`,
       [identifier]
     );
-
+    const formatUser = (user) => ({
+      ...user,
+      balance: Number(user.balance).toFixed(2)
+    });
     if (result.rows.length === 0)
       return res.status(400).json({ message: "Invalid credentials" });
 
@@ -255,7 +259,7 @@ export const signin = async (req, res) => {
 
     res.json({
       token: generateToken(user.id),
-      user,
+      user: formatUser(user),
       referralCode: user.referral_code,
       referralLink: `https://bc-game-client.onrender.com/i-${user.referral_code}`
     });
