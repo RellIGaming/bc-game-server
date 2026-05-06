@@ -131,6 +131,34 @@ enum WithdrawalStatus {
   REJECTED
 }
 
+enum BonusType {
+  FIXED
+  PERCENT
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    Int
+  ip        String
+  device    String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model FraudLog {
+  id     Int    @id @default(autoincrement())
+  userId Int
+  reason String
+  score  Int
+  meta   Json?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
 model ReferralCode {
   id Int @id @default(autoincrement())
 
@@ -147,6 +175,34 @@ model ReferralCode {
 
   @@index([userId])
   @@map("referral_codes")
+}
+
+model BonusCode {
+  id          String            @id @default(cuid())
+  code        String            @unique
+  type        BonusType // FIXED | PERCENT
+  amount      Decimal           @db.Decimal(18, 2)
+  maxUsage    Int? // total global usage
+  usedCount   Int               @default(0)
+  isActive    Boolean           @default(true)
+  expiresAt   DateTime? // optional expiry
+  createdAt   DateTime          @default(now())
+  redemptions BonusRedemption[]
+
+  @@index([code])
+}
+
+model BonusRedemption {
+  id      String @id @default(cuid())
+  userId  Int
+  bonusId String
+
+  createdAt DateTime  @default(now())
+  amount    Decimal   @default(0) @db.Decimal(18, 2)
+  user      User      @relation(fields: [userId], references: [id])
+  bonus     BonusCode @relation(fields: [bonusId], references: [id])
+
+  @@unique([userId, bonusId]) // 🔥 PREVENT DOUBLE CLAIM
 }
 
 model User {
@@ -168,8 +224,8 @@ model User {
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") // add @default(now())
   balance             Decimal             @default(0)
-  fraudScore Int     @default(0)
-  isBlocked  Boolean @default(false)
+  fraudScore          Int                 @default(0)
+  isBlocked           Boolean             @default(false)
   profileImage        String?             @map("profile_image") @db.VarChar(255)
   deposits            Deposit[]           @relation("UserDeposits")
   approvedDeposits    Deposit[]           @relation("AgentDeposits")
@@ -191,6 +247,10 @@ model User {
   swaps               Swap[]
   raffleTickets       RaffleTicket[]
   raffleWinners       RaffleWinner[]
+  bonusRedemptions    BonusRedemption[]
+  userSessions        UserSession[]
+  fraudLogs           FraudLog[]
+  vaultTransactions   VaultTransaction[]
 
   @@index([referredBy])
   @@index([referralCode])
@@ -227,11 +287,11 @@ model CommissionRule {
 }
 
 model ReferralProgress {
-  id         Int   @id @default(autoincrement())
+  id         Int     @id @default(autoincrement())
   userId     Int // referrer
   friendId   Int // referred user
-  totalWager Float @default(0)
-  unlocked   Float @default(0)
+  totalWager Decimal @db.Decimal(18, 2)
+  unlocked   Decimal @db.Decimal(18, 2)
 }
 
 model Promotion {
@@ -254,7 +314,7 @@ model DailyContest {
   id Int @id @default(autoincrement())
 
   title     String   @default("Daily Contest")
-  prizePool Float
+  prizePool Decimal  @db.Decimal(18, 2)
   startDate DateTime
   endDate   DateTime
   isActive  Boolean  @default(true)
@@ -273,8 +333,8 @@ model DailyContestLeaderboard {
   userId    Int?
 
   playerName String
-  wager      Float
-  prize      Float
+  wager      Decimal @db.Decimal(18, 2)
+  prize      Decimal @db.Decimal(18, 2)
   rank       Int
 
   contest DailyContest @relation(fields: [contestId], references: [id], onDelete: Cascade)
@@ -288,8 +348,8 @@ model DailyContestHistory {
   contestId Int
 
   playerName String
-  wager      Float
-  prize      Float
+  wager      Decimal @db.Decimal(18, 2)
+  prize      Decimal @db.Decimal(18, 2)
   rank       Int
 
   createdAt DateTime @default(now())
@@ -324,6 +384,16 @@ model DepositBonusTier {
   createdAt DateTime @default(now())
 
   @@map("deposit_bonus_tiers")
+}
+
+enum ReferenceType {
+  BONUS
+  REFERRAL
+  DAILY_BONUS
+  RAKEBACK
+  BONUS_CODE
+  DEPOSIT
+  WITHDRAW
 }
 
 model RaffleRound {
@@ -380,9 +450,9 @@ model RaffleWinner {
 }
 
 model ExchangeRate {
-  id       Int    @id @default(autoincrement())
-  currency String @unique
-  rate     Float // to BDT
+  id       Int     @id @default(autoincrement())
+  currency String  @unique
+  rate     Decimal @db.Decimal(18, 6)
 }
 
 model Game {
@@ -447,12 +517,12 @@ model Deposit {
   method   String
   network  String?
 
-  amount    Decimal @db.Decimal(38, 2)
-  amountBDT Decimal @db.Decimal(38, 2)
-  txHash    String?
-  txId      String?
-  proof     String?
-  isSubmitted   Boolean  @default(false)
+  amount      Decimal       @db.Decimal(38, 2)
+  amountBDT   Decimal       @db.Decimal(38, 2)
+  txHash      String?
+  txId        String?
+  proof       String?
+  isSubmitted Boolean       @default(false)
   status      DepositStatus @default(PENDING)
   submittedAt DateTime?
   approvedAt  DateTime?
@@ -482,20 +552,29 @@ model Vault {
 
 model VaultTransaction {
   id        String   @id @default(cuid())
-  userId    String
+  userId    Int
   type      String // INTEREST / DEPOSIT / WITHDRAW
   amount    Float
   currency  String
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 
   @@map("VaultTransaction")
 }
 
 model Rollover {
-  id       Int     @id @default(autoincrement())
-  userId   Int
-  wagered  Decimal @default(0)
-  required Decimal
+  id     Int @id @default(autoincrement())
+  userId Int
+
+  bonusId String?
+  source  ReferenceType // BONUS, DEPOSIT, etc.
+
+  required Decimal @db.Decimal(18, 2)
+  wagered  Decimal @default(0) @db.Decimal(18, 2)
+
+  isCompleted Boolean @default(false)
+
+  expiresAt DateTime?
 
   createdAt DateTime @default(now())
 
@@ -579,11 +658,11 @@ model Wallet {
   currency String
   iconUrl  String? @map("icon_url")
 
-  isLocked  Boolean   @default(false) @map("is_locked")
-  createdAt DateTime? @map("created_at")
-  updatedAt DateTime? @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isLocked     Boolean   @default(false) @map("is_locked")
+  createdAt    DateTime? @map("created_at")
+  updatedAt    DateTime? @map("updated_at")
+  lockedAmount Decimal   @default(0) // tied to rollover
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, currency])
   @@map("wallets")
@@ -602,8 +681,8 @@ model WalletTransaction {
   balanceBefore Decimal? @map("balance_before") @db.Decimal(38, 2)
   balanceAfter  Decimal? @map("balance_after") @db.Decimal(38, 2)
 
-  referenceId   String? @map("reference_id") @db.VarChar(100)
-  referenceType String? @map("reference_type") @db.VarChar(50)
+  referenceId   String?        @map("reference_id") @db.VarChar(100)
+  referenceType ReferenceType? @map("reference_type")
 
   idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(255)
 
@@ -616,6 +695,7 @@ model WalletTransaction {
   @@index([userId])
   @@index([type])
   @@index([referenceId, type])
+  @@index([userId, referenceType])
   @@map("wallet_transactions")
 }
 
@@ -917,7 +997,7 @@ model Notification {
 
 model SupportTicket {
   id        String         @id @default(cuid())
-  userId    String
+  userId    Int
   subject   String
   message   String
   status    String         @default("OPEN")
@@ -928,7 +1008,7 @@ model SupportTicket {
 model SupportReply {
   id        String   @id @default(cuid())
   ticketId  String
-  senderId  String
+  senderId  Int
   message   String
   createdAt DateTime @default(now())
 

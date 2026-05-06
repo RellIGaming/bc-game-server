@@ -368,242 +368,239 @@ export const approveWithdraw = async (req, res) => {
 };
 
 export const approveDeposit = async (req, res) => {
-    try {
-        const { depositId } = req.body;
+  try {
+    const { depositId } = req.body;
 
-        if (!depositId)
-            return res.status(400).json({ message: "Deposit ID required" });
+    if (!depositId)
+      return res.status(400).json({ message: "Deposit ID required" });
 
-        const deposit = await prisma.deposit.findUnique({
-            where: { id: depositId }
-        });
+    const deposit = await prisma.deposit.findUnique({
+      where: { id: depositId }
+    });
 
-        if (!deposit)
-            return res.status(404).json({ message: "Deposit not found" });
+    if (!deposit)
+      return res.status(404).json({ message: "Deposit not found" });
 
+    if (deposit.status !== "PENDING")
+      return res.status(400).json({ message: "Already processed" });
 
-        if (deposit.status !== "PENDING")
-            return res.status(400).json({ message: "Already processed" });
+    if (!deposit.isSubmitted)
+      return res.status(400).json({ message: "User has not submitted payment yet" });
 
-        if (!deposit.isSubmitted) {
-            return res.status(400).json({ message: "User has not submitted payment yet" });
+    if (req.user.role !== "agent")
+      return res.status(403).json({ message: "Only agent can approve" });
+
+    const amount = Number(deposit.amountBDT);
+
+    await prisma.$transaction(async (tx) => {
+
+      /* ================= FRAUD CHECK ================= */
+
+      const userData = await tx.user.findUnique({
+        where: { id: deposit.userId },
+        select: { fraudScore: true, isBlocked: true }
+      });
+
+      if (userData?.isBlocked) {
+        throw new Error("User is blocked");
+      }
+
+      if (userData?.fraudScore >= 70) {
+        throw new Error("High risk user - manual review required");
+      }
+
+      /* ================= FRAUD CALC ================= */
+
+      let fraudScore = 0;
+
+      if (amount > 10000) fraudScore += 20;
+
+      const todayCount = await tx.deposit.count({
+        where: {
+          userId: deposit.userId,
+          createdAt: {
+            gte: new Date(new Date().setHours(0, 0, 0, 0))
+          }
         }
-        if (req.user.role !== "agent") {
-            return res.status(403).json({ message: "Only agent can approve" });
+      });
+
+      if (todayCount > 5) fraudScore += 15;
+
+      if ((userData.fraudScore + fraudScore) >= 90) {
+        await tx.user.update({
+          where: { id: deposit.userId },
+          data: { isBlocked: true }
+        });
+
+        throw new Error("User blocked due to fraud risk");
+      }
+
+      if (fraudScore > 0) {
+        await tx.user.update({
+          where: { id: deposit.userId },
+          data: {
+            fraudScore: { increment: fraudScore }
+          }
+        });
+      }
+
+      /* ================= WALLET ================= */
+
+      const agentWallet = await tx.wallet.findUnique({
+        where: {
+          userId_currency: {
+            userId: req.user.id,
+            currency: "BDT"
+          }
         }
+      });
 
-        const amount = Number(deposit.amountBDT);
+      if (!agentWallet) throw new Error("Agent wallet not found");
 
-        await prisma.$transaction(async (tx) => {
+      if (Number(agentWallet.balance) < amount) {
+        throw new Error("Insufficient agent balance");
+      }
 
-            /* ================= FRAUD CHECK FIRST ================= */
-
-            const userData = await tx.user.findUnique({
-                where: { id: deposit.userId },
-                select: { fraudScore: true, isBlocked: true }
-            });
-
-            if (userData?.isBlocked) {
-                throw new Error("User is blocked");
-            }
-
-            if (userData?.fraudScore >= 70) {
-                throw new Error("High risk user - manual review required");
-            }
-
-            /* ================= FRAUD CALCULATION ================= */
-
-            let fraudScore = 0;
-
-            if (amount > 10000) fraudScore += 20;
-
-            const todayCount = await tx.deposit.count({
-                where: {
-                    userId: deposit.userId,
-                    createdAt: {
-                        gte: new Date(new Date().setHours(0, 0, 0, 0))
-                    }
-                }
-            });
-
-            if (todayCount > 5) fraudScore += 15;
-
-            /* 🚨 BLOCK IF TOO RISKY */
-
-            if ((userData.fraudScore + fraudScore) >= 90) {
-                await tx.user.update({
-                    where: { id: deposit.userId },
-                    data: { isBlocked: true }
-                });
-
-                throw new Error("User blocked due to fraud risk");
-            }
-
-            /* ✅ UPDATE FRAUD SCORE BEFORE MONEY */
-
-            if (fraudScore > 0) {
-                await tx.user.update({
-                    where: { id: deposit.userId },
-                    data: {
-                        fraudScore: { increment: fraudScore }
-                    }
-                });
-            }
-
-            /* ================= WALLET LOGIC ================= */
-
-            const agentWallet = await tx.wallet.findUnique({
-                where: {
-                    userId_currency: {
-                        userId: req.user.id,
-                        currency: "BDT"
-                    }
-                }
-            });
-
-            if (!agentWallet) throw new Error("Agent wallet not found");
-
-            if (Number(agentWallet.balance) < amount) {
-                throw new Error("Insufficient agent balance");
-            }
-
-            const userWallet = await tx.wallet.findUnique({
-                where: {
-                    userId_currency: {
-                        userId: deposit.userId,
-                        currency: "BDT"
-                    }
-                }
-            });
-
-            const balanceBefore = Number(userWallet?.balance || 0);
-            const balanceAfter = balanceBefore + amount;
-
-            /* 💰 TRANSFER */
-
-            await tx.wallet.update({
-                where: {
-                    userId_currency: {
-                        userId: req.user.id,
-                        currency: "BDT"
-                    }
-                },
-                data: { balance: { decrement: amount } }
-            });
-
-            await tx.wallet.upsert({
-                where: {
-                    userId_currency: {
-                        userId: deposit.userId,
-                        currency: "BDT"
-                    }
-                },
-                update: { balance: { increment: amount } },
-                create: {
-                    userId: deposit.userId,
-                    currency: "BDT",
-                    balance: amount
-                }
-            });
-
-            /* ================= TRANSACTION ================= */
-
-            await tx.walletTransaction.create({
-                data: {
-                    userId: deposit.userId,
-                    txId: "TXN-" + nanoid(10),
-                    currency: "BDT",
-                    amount,
-                    type: "DEPOSIT",
-                    status: "COMPLETED",
-                    balanceBefore,
-                    balanceAfter,
-                    referenceId: deposit.id.toString(),
-                    referenceType: "DEPOSIT"
-                }
-            });
-
-            /* ================= REFERRAL ================= */
-
-            const user = await tx.user.findUnique({
-                where: { id: deposit.userId },
-                select: { referredBy: true }
-            });
-
-            if (user?.referredBy) {
-                const commission = amount * 0.05;
-
-                await tx.wallet.upsert({
-                    where: {
-                        userId_currency: {
-                            userId: user.referredBy,
-                            currency: "BDT"
-                        }
-                    },
-                    update: { balance: { increment: commission } },
-                    create: {
-                        userId: user.referredBy,
-                        currency: "BDT",
-                        balance: commission
-                    }
-                });
-
-                await tx.walletTransaction.create({
-                    data: {
-                        userId: user.referredBy,
-                        txId: "REF-" + nanoid(10),
-                        currency: "BDT",
-                        amount: commission,
-                        type: "DEPOSIT",
-                        status: "COMPLETED",
-                        referenceId: deposit.id.toString(),
-                        referenceType: "REFERRAL"
-                    }
-                });
-            }
-
-            /* ================= FINAL ================= */
-
-            await tx.deposit.update({
-                where: { id: depositId },
-                data: { status: "APPROVED", agentId: req.user.id }
-            });
-
-            await tx.notification.create({
-                data: {
-                    userId: deposit.userId,
-                    type: "deposit-approved",
-                    message: `Deposit approved ৳${deposit.amount}, ${deposit.orderId}`
-                }
-            });
-            await tx.notification.create({
-                data: {
-                    agentId: req.user.id,
-                    type: "deposit_approved",
-                    message: `Deposit approved ৳${deposit.amountBDT}`
-                }
-            })
-
-        });
-        sendUserNotification(deposit.userId, {
-            type: "deposit-approved",
-            amount: deposit.amount,
-            // currency: deposit.currency,
-            currency: "BDT",
-            message: `Your deposit of ৳${deposit.amount} has been approved`
-        });
-
-        res.json({
-            message: "Deposit approved",
-            currency: "BDT",
-            amount: amount,
+      const userWallet = await tx.wallet.findUnique({
+        where: {
+          userId_currency: {
             userId: deposit.userId,
-            txId: deposit.id
+            currency: "BDT"
+          }
+        }
+      });
+
+      const balanceBefore = Number(userWallet?.balance || 0);
+      const balanceAfter = balanceBefore + amount;
+
+      /* 💰 TRANSFER */
+
+      await tx.wallet.update({
+        where: {
+          userId_currency: {
+            userId: req.user.id,
+            currency: "BDT"
+          }
+        },
+        data: { balance: { decrement: amount } }
+      });
+
+      await tx.wallet.upsert({
+        where: {
+          userId_currency: {
+            userId: deposit.userId,
+            currency: "BDT"
+          }
+        },
+        update: { balance: { increment: amount } },
+        create: {
+          userId: deposit.userId,
+          currency: "BDT",
+          balance: amount
+        }
+      });
+
+      /* ================= TRANSACTION ================= */
+
+      await tx.walletTransaction.create({
+        data: {
+          userId: deposit.userId,
+          txId: "TXN-" + nanoid(10),
+          currency: "BDT",
+          amount,
+          type: "DEPOSIT",
+          status: "COMPLETED",
+          balanceBefore,
+          balanceAfter,
+          referenceId: deposit.id.toString(),
+          referenceType: "DEPOSIT"
+        }
+      });
+
+      /* ================= REFERRAL ================= */
+
+      const user = await tx.user.findUnique({
+        where: { id: deposit.userId },
+        select: { referredBy: true }
+      });
+
+      if (user?.referredBy) {
+        const commission = amount * 0.05;
+
+        await tx.wallet.upsert({
+          where: {
+            userId_currency: {
+              userId: user.referredBy,
+              currency: "BDT"
+            }
+          },
+          update: { balance: { increment: commission } },
+          create: {
+            userId: user.referredBy,
+            currency: "BDT",
+            balance: commission
+          }
         });
 
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
+        await tx.walletTransaction.create({
+          data: {
+            userId: user.referredBy,
+            txId: "REF-" + nanoid(10),
+            currency: "BDT",
+            amount: commission,
+            type: "DEPOSIT",
+            status: "COMPLETED",
+            referenceId: deposit.id.toString(),
+            referenceType: "REFERRAL"
+          }
+        });
+      }
+
+      /* ================= FINAL ================= */
+
+      await tx.deposit.update({
+        where: { id: depositId },
+        data: { status: "APPROVED", agentId: req.user.id }
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: deposit.userId,
+          type: "deposit-approved",
+          message: `Deposit approved ৳${deposit.amount}, ${deposit.orderId}`
+        }
+      });
+
+      await tx.notification.create({
+        data: {
+          agentId: req.user.id,
+          type: "deposit_approved",
+          message: `Deposit approved ৳${deposit.amountBDT}`
+        }
+      });
+
+    });
+
+    /* ✅ OUTSIDE TRANSACTION */
+
+    sendUserNotification(deposit.userId, {
+      type: "deposit-approved",
+      amount: deposit.amount,
+      currency: "BDT",
+      message: `Your deposit of ৳${deposit.amount} has been approved`
+    });
+
+    res.json({
+      message: "Deposit approved",
+      currency: "BDT",
+      amount,
+      userId: deposit.userId,
+      txId: deposit.id
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
 export const rejectWithdraw = async (req, res) => {

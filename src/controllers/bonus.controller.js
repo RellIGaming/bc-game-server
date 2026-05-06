@@ -135,7 +135,7 @@ export const claimDailyBonus = async (req, res) => {
       await tx.walletTransaction.create({
         data: {
           userId,
-          currency: "INR",
+          currency: "BDT",
           amount,
           type: "DEPOSIT",
           status: "COMPLETED",
@@ -145,7 +145,7 @@ export const claimDailyBonus = async (req, res) => {
 
       await tx.wallet.update({
         where: {
-          userId_currency: { userId, currency: "INR" }
+          userId_currency: { userId, currency: "BDT" }
         },
         data: {
           bonus: { increment: amount }
@@ -172,7 +172,7 @@ export const claimRakeback = async (req, res) => {
       await tx.walletTransaction.create({
         data: {
           userId,
-          currency: "INR",
+          currency: "BDT",
           amount: rakebackAmount,
           type: "DEPOSIT",
           status: "COMPLETED",
@@ -184,7 +184,7 @@ export const claimRakeback = async (req, res) => {
         where: {
           userId_currency: {
             userId,
-            currency: "INR"
+            currency: "BDT"
           }
         },
         data: {
@@ -201,7 +201,6 @@ export const claimRakeback = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 
 
 export const getBonusSummary = async (req, res) => {
@@ -240,15 +239,11 @@ export const getBonusSummary = async (req, res) => {
     });
 
     res.json({
-      totalBonus,
       totalClaimed: Number(claimed._sum.amount || 0),
-
-      breakdown: {
-        referral: Number(referral._sum.amount || 0),
-        vip: 0,
-        general: 0,
-        locked: totalBonus // simple for now
-      }
+      vipBonus: 0,
+      specialBonus: 0,
+      generalBonus: Number(referral._sum.amount || 0),
+      lockedBonus: totalBonus
     });
 
   } catch (err) {
@@ -278,7 +273,12 @@ export const getMonthlyDepositBonus = async (req, res) => {
 
     res.json({
       totalDeposit,
-      bonusPct,
+      tiers: [
+        { percentage: 180, active: totalDeposit < 10000 },
+        { percentage: 240, active: totalDeposit >= 10000 && totalDeposit < 50000 },
+        { percentage: 300, active: totalDeposit >= 50000 && totalDeposit < 100000 },
+        { percentage: 360, active: totalDeposit >= 100000 }
+      ],
       estimatedBonus: (totalDeposit * bonusPct) / 100
     });
 
@@ -295,21 +295,122 @@ export const redeemCode = async (req, res) => {
       return res.status(400).json({ message: "Code required" });
     }
 
-    // demo logic
-    if (code !== "FREE100") {
+    /* ===== 1. FIND BONUS ===== */
+    const bonus = await prisma.bonusCode.findUnique({
+      where: { code }
+    });
+
+    if (!bonus || !bonus.isActive) {
       return res.status(400).json({ message: "Invalid code" });
     }
 
-    await prisma.wallet.update({
+    /* ===== 2. CHECK ALREADY USED ===== */
+    const alreadyUsed = await prisma.bonusRedemption.findUnique({
       where: {
-        userId_currency: { userId, currency: "INR" }
-      },
-      data: {
-        bonus: { increment: 100 }
+        userId_bonusId: {
+          userId,
+          bonusId: bonus.id
+        }
       }
     });
 
-    res.json({ message: "Bonus redeemed ✅", amount: 100 });
+    if (alreadyUsed) {
+      return res.status(400).json({ message: "Already redeemed" });
+    }
+
+    /* ===== 3. CALCULATE BONUS ===== */
+    let finalAmount = 0;
+
+    if (bonus.type === "FIXED") {
+      finalAmount = Number(bonus.amount);
+    }
+
+    if (bonus.type === "PERCENT") {
+      const lastDeposit = await prisma.walletTransaction.findFirst({
+        where: {
+          userId,
+          type: "DEPOSIT"
+        },
+        orderBy: { createdAt: "desc" }
+      });
+
+      const depositAmount = Number(lastDeposit?.amount || 0);
+
+      finalAmount = (depositAmount * Number(bonus.amount)) / 100;
+    }
+
+    if (finalAmount <= 0) {
+      return res.status(400).json({ message: "Invalid bonus amount" });
+    }
+
+    /* ===== 4. APPLY BONUS ===== */
+    await prisma.$transaction(async (tx) => {
+      // Add bonus to wallet
+      await tx.wallet.update({
+        where: {
+          userId_currency: {
+            userId,
+            currency: "BDT"
+          }
+        },
+        data: {
+          bonus: {
+            increment: finalAmount
+          },
+          lockedAmount: {
+            increment: finalAmount * 10 // 🔥 10x wagering
+          }
+        }
+      });
+
+      // Create transaction
+      await tx.walletTransaction.create({
+        data: {
+          userId,
+          currency: "BDT",
+          amount: finalAmount,
+          type: "DEPOSIT",
+          status: "COMPLETED",
+          referenceType: "BONUS_CODE",
+          referenceId: bonus.id
+        }
+      });
+
+      // Save redemption (VERY IMPORTANT)
+      await tx.bonusRedemption.create({
+        data: {
+          userId,
+          bonusId: bonus.id,
+          amount: finalAmount
+        }
+      });
+
+      // Increase usage count
+      await tx.bonusCode.update({
+        where: { id: bonus.id },
+        data: {
+          usedCount: {
+            increment: 1
+          }
+        }
+      });
+      await tx.rollover.create({
+        data: {
+          userId: userId,
+          bonusId: bonus.id,
+          source: "BONUS_CODE",
+          required: finalAmount * 10, // 10x wagering
+          wagered: 0,
+          isCompleted: false
+        }
+      });
+    });
+
+    /* ===== 5. RESPONSE ===== */
+    res.json({
+      message: "Bonus redeemed ✅",
+      amount: finalAmount
+    });
 
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -343,7 +444,7 @@ export const getBonusFull = async (req, res) => {
 
     /* ================= VIP (STATIC LOGIC FOR NOW) ================= */
 
-    const xp = 0; // 🔥 later calculate from bets
+    // const xp = 0; // 🔥 later calculate from bets
     const level = 0;
     const nextXp = 100;
 
@@ -445,7 +546,7 @@ export const seedBonusTestData = async (req, res) => {
     await prisma.walletTransaction.create({
       data: {
         userId,
-        currency: "INR",
+        currency: "BDT",
         amount: 20000,
         type: "DEPOSIT",
         status: "COMPLETED"
@@ -456,7 +557,7 @@ export const seedBonusTestData = async (req, res) => {
     await prisma.walletTransaction.create({
       data: {
         userId,
-        currency: "INR",
+        currency: "BDT",
         amount: 100,
         type: "REFERRAL_REWARD",
         status: "COMPLETED",
@@ -615,10 +716,10 @@ export const getVipClub = async (req, res) => {
 
 export const getVipBonusTable = async (req, res) => {
   try {
-    const userId = req.user?.id; 
+    const userId = req.user?.id;
 
     // 🔥 Example: fetch from DB
-    const userXp = 3200; 
+    const userXp = 3200;
 
     const tiers = [
       { name: "Bronze", color: "#CD7F32", minXp: 0 },
@@ -641,11 +742,11 @@ export const getVipBonusTable = async (req, res) => {
 
     const progressPercent = nextTier
       ? Math.min(
-          ((userXp - currentTier.minXp) /
-            (nextTier.minXp - currentTier.minXp)) *
-            100,
-          100
-        )
+        ((userXp - currentTier.minXp) /
+          (nextTier.minXp - currentTier.minXp)) *
+        100,
+        100
+      )
       : 100;
 
     res.json({

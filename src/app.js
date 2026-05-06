@@ -83,16 +83,16 @@ app.use("/api/admin/wallet", adminWalletRoutes);
 // agent api
 app.use("/api/agent", agentWalletRoutes);
 
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, "dist", "index.html"));
-});
-
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {
   res.json({
     status: "API running 🚀",
     env: process.env.NODE_ENV || "development",
   });
+});
+
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
 export default app;

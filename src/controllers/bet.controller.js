@@ -92,14 +92,49 @@ export const getBetsFeed = async (req, res) => {
   }
 };
 
-/* ================= PLACE BET ================= */
+// ================= PLACE BET ================= //
+
+
 
 export const placeBet = async (req, res) => {
   try {
     const { userId, optionId, amount } = req.body;
 
-    /* ===== 1. GET OPTION ===== */
+    const betAmount = Number(amount);
 
+    /* ===== 1. GET USER WALLET ===== */
+    const wallet = await prisma.wallet.findUnique({
+      where: {
+        userId_currency: {
+          userId: BigInt(userId),
+          currency: "BDT"
+        }
+      }
+    });
+
+    if (!wallet) {
+      return res.status(400).json({ error: "Wallet not found" });
+    }
+
+    let remainingAmount = betAmount;
+    let useBonus = 0;
+    let useBalance = 0;
+
+    /* ===== 2. USE BONUS FIRST ===== */
+    if (wallet.bonus > 0) {
+      useBonus = Math.min(wallet.bonus, remainingAmount);
+      remainingAmount -= useBonus;
+    }
+
+    /* ===== 3. USE REAL BALANCE ===== */
+    if (remainingAmount > 0) {
+      if (wallet.balance < remainingAmount) {
+        return res.status(400).json({ error: "Insufficient balance" });
+      }
+      useBalance = remainingAmount;
+    }
+
+    /* ===== 4. GET OPTION ===== */
     const option = await prisma.marketOption.findUnique({
       where: { id: BigInt(optionId) },
       include: { market: true }
@@ -109,121 +144,115 @@ export const placeBet = async (req, res) => {
       return res.status(400).json({ error: "Invalid option" });
     }
 
-    const betAmount = Number(amount);
     const potentialWin = betAmount * Number(option.odds);
 
-    /* ===== 2. CREATE BET ===== */
+    /* ===== 5. TRANSACTION ===== */
+    const bet = await prisma.$transaction(async (tx) => {
 
-    const bet = await prisma.bet.create({
-      data: {
-        userId: BigInt(userId),
-        matchId: option.market.matchId,
-        marketId: option.marketId,
-        optionId: BigInt(optionId),
-        oddsLocked: option.odds,
-        amount: betAmount,
-        potentialWin
+      /* 👉 Deduct wallet */
+      await tx.wallet.update({
+        where: {
+          userId_currency: {
+            userId: BigInt(userId),
+            currency: "BDT"
+          }
+        },
+        data: {
+          bonus: { decrement: useBonus },
+          balance: { decrement: useBalance }
+        }
+      });
+
+      /* 👉 Create bet */
+      const createdBet = await tx.bet.create({
+        data: {
+          userId: BigInt(userId),
+          matchId: option.market.matchId,
+          marketId: option.marketId,
+          optionId: BigInt(optionId),
+          oddsLocked: option.odds,
+          amount: betAmount,
+          potentialWin,
+          usedBonus: useBonus,     // 🔥 important
+          usedBalance: useBalance  // 🔥 important
+        }
+      });
+
+      /* ===== 6. UPDATE ROLLOVER ===== */
+      const rollovers = await tx.rollover.findMany({
+        where: {
+          userId: BigInt(userId),
+          isCompleted: false
+        }
+      });
+
+      for (const r of rollovers) {
+        const newWagered = r.wagered + betAmount;
+
+        await tx.rollover.update({
+          where: { id: r.id },
+          data: {
+            wagered: newWagered,
+            isCompleted: newWagered >= r.required
+          }
+        });
+
+        /* 🔥 IF COMPLETED → UNLOCK BONUS */
+        if (newWagered >= r.required && !r.isCompleted) {
+          await tx.wallet.update({
+            where: {
+              userId_currency: {
+                userId: BigInt(userId),
+                currency: "BDT"
+              }
+            },
+            data: {
+              balance: { increment: r.required / 10 } // example unlock
+            }
+          });
+        }
       }
+
+      return createdBet;
     });
 
-    /* ===== 3. MULTI-LEVEL COMMISSION ===== */
-
+    /* ===== 7. COMMISSION ===== */
     const uplines = await getUpline(userId);
 
     for (const upline of uplines) {
       const commission = betAmount * LEVEL_COMMISSION[upline.level];
 
-      await prisma.$transaction(async (tx) => {
-
-        // 👉 Add bonus
-        await tx.wallet.update({
-          where: {
-            userId_currency: {
-              userId: upline.userId,
-              currency: "INR"
-            }
-          },
-          data: {
-            bonus: { increment: commission }
-          }
-        });
-
-        // 👉 Save transaction
-        await tx.walletTransaction.create({
-          data: {
+      await prisma.wallet.update({
+        where: {
+          userId_currency: {
             userId: upline.userId,
-            currency: "INR",
-            amount: commission,
-            type: "COMMISSION",
-            status: "COMPLETED",
-            referenceType: "REFERRAL",
-            referenceId: String(userId)
+            currency: "BDT"
           }
-        });
-
+        },
+        data: {
+          bonus: { increment: commission } // bonus only
+        }
       });
 
-      /* ===== 🔥 REAL-TIME SOCKET ===== */
+      await prisma.walletTransaction.create({
+        data: {
+          userId: upline.userId,
+          currency: "BDT",
+          amount: commission,
+          type: "COMMISSION",
+          status: "COMPLETED",
+          referenceType: "REFERRAL",
+          referenceId: String(userId)
+        }
+      });
 
       sendUserNotification(upline.userId, {
         type: "COMMISSION",
-        amount: commission,
-        fromUser: userId
+        amount: commission
       });
     }
 
-    /* ===== 4. UPDATE WAGER ===== */
-
-    await prisma.referralProgress.updateMany({
-      where: {
-        friendId: BigInt(userId)
-      },
-      data: {
-        totalWager: {
-          increment: betAmount
-        }
-      }
-    });
-
-    /* ===== 5. AUTO UNLOCK REWARD ===== */
-
-    const progressList = await prisma.referralProgress.findMany({
-      where: { friendId: BigInt(userId) }
-    });
-
-    for (const p of progressList) {
-      if (p.totalWager >= 1000 && !p.level1Unlocked) {
-
-        // 👉 give reward
-        await prisma.wallet.update({
-          where: {
-            userId_currency: {
-              userId: p.userId,
-              currency: "INR"
-            }
-          },
-          data: {
-            bonus: { increment: 100 }
-          }
-        });
-
-        // 👉 mark unlocked
-        await prisma.referralProgress.update({
-          where: { id: p.id },
-          data: { level1Unlocked: true }
-        });
-
-        // 👉 socket notify
-        sendUserNotification(p.userId, {
-          type: "REFERRAL_REWARD",
-          amount: 100,
-          friend: userId
-        });
-      }
-    }
-
-    /* ===== FINAL RESPONSE ===== */
-
+    /* ===== FINAL ===== */
     res.json(bet);
 
   } catch (err) {

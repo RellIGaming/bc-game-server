@@ -2,14 +2,27 @@ import prisma from "../prisma.js";
 
 
 // controllers/raffle.controller.js
+export const getTimeLeft = (targetDate) => {
+  const diff = new Date(targetDate).getTime() - Date.now();
 
+  if (diff <= 0) return null;
+
+  return {
+    days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
+    minutes: Math.floor((diff / (1000 * 60)) % 60),
+    seconds: Math.floor((diff / 1000) % 60),
+  };
+};
 // 🔹 Get Weekly Raffle Main Data
 export const getRaffleData = async (req, res) => {
   try {
     const userId = req.user?.id;
+    const now = new Date();
+    const timeLeft = round.drawAt - now;
 
     const round = await prisma.raffleRound.findFirst({
-      where: { isActive: true }
+      where: { status: "ACTIVE" }
     });
 
     if (!round) {
@@ -37,7 +50,7 @@ export const getRaffleData = async (req, res) => {
       prizePool: round.prizePool,
       totalTickets: round.totalTickets,
       drawTime: round.drawTime,
-
+      timeLeft,
       userStats: {
         totalTickets: tickets.length,
         winningTickets,
@@ -93,7 +106,9 @@ export const getMyTickets = async (req, res) => {
     const { type = "active" } = req.query;
 
     let where = { userId };
-
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
     if (type === "past") {
       where.isWinner = false;
     }
@@ -107,39 +122,19 @@ export const getMyTickets = async (req, res) => {
       orderBy: { createdAt: "desc" }
     });
 
-    res.json(tickets);
+    res.json({
+      tickets,
+      stats: {
+        total: tickets.length,
+        winnings: tickets.filter(t => t.isWinner).length,
+        prize: 0 // or calculate if needed
+      }
+    });
 
   } catch (err) {
     res.status(500).json({ message: "Failed" });
   }
 };
 
-export const getWinners = async (req, res) => {
-  const { roundId, page = 1 } = req.query;
 
-  const limit = 10;
-  const skip = (page - 1) * limit;
-
-  const tickets = await prisma.raffleTicket.findMany({
-    where: { roundId, isWinner: true },
-    include: { user: true },
-    orderBy: { prize: "desc" },
-    skip,
-    take: limit,
-  });
-
-  const total = await prisma.raffleTicket.count({
-    where: { roundId, isWinner: true },
-  });
-
-  res.json({
-    data: tickets.map((t, i) => ({
-      rank: i + 1,
-      username: t.user.username,
-      ticketNumber: t.ticketNumber,
-      prize: t.prize,
-    })),
-    totalPages: Math.ceil(total / limit),
-  });
-};
 

@@ -104,45 +104,56 @@ export const getDailyContest = async (req, res) => {
   try {
     const userId = req.user?.id;
 
-    // 🔹 Example logic (replace with real queries)
-    const prizePool = 4938.73;
-
-    const startDate = new Date("2026-02-07");
-    const endDate = new Date("2026-02-08");
-
-    const leaderboard = await prisma.user.findMany({
-      take: 10,
-      orderBy: { balance: "desc" },
-      select: {
-        username: true,
-        balance: true
+    const contest = await prisma.dailyContest.findFirst({
+      where: { isActive: true },
+      include: {
+        leaderboard: {
+          orderBy: { rank: "asc" },
+          take: 10
+        }
       }
     });
 
-    // 🔥 USER DATA
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { balance: true }
+    if (!contest) {
+      return res.json({
+        prizePool: 0,
+        startDate: null,
+        endDate: null,
+        leaderboard: [],
+        userStats: {
+          rank: "50+",
+          wager: 0,
+          wagerToTop10: 0
+        }
+      });
+    }
+
+    const userEntry = await prisma.dailyContestLeaderboard.findFirst({
+      where: {
+        contestId: contest.id,
+        userId
+      }
     });
 
-    const userWager = Number(user?.balance || 0);
+    const userWager = userEntry?.wager ?? 0;
+    const userRank = userEntry?.rank ?? "50+";
 
-    const minTopWager = leaderboard[leaderboard.length - 1]?.balance || 0;
+    const lastTop = contest.leaderboard?.length
+      ? contest.leaderboard[contest.leaderboard.length - 1]
+      : null;
 
-    const wagerToTop10 = Math.max(minTopWager - userWager, 0);
-
-    const userRank =
-      leaderboard.findIndex(u => u.username === user?.username) + 1 || null;
+    const wagerToTop10 = lastTop
+      ? Math.max(lastTop.wager - userWager, 0)
+      : 0;
 
     res.json({
-      prizePool,
-      startDate,
-      endDate,
-      leaderboard,
+      prizePool: contest.prizePool,
+      startDate: contest.startDate,
+      endDate: contest.endDate,
+      leaderboard: contest.leaderboard,
 
-      // ✅ IMPORTANT
       userStats: {
-        rank: userRank || "50+",
+        rank: userRank,
         wager: userWager,
         wagerToTop10
       }

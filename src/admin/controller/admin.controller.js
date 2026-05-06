@@ -348,71 +348,6 @@ export const getFraudLogs = async (req, res) => {
   res.json(logs);
 };
 
-export const createPromotion = async (req, res) => {
-  try {
-    const { title, sub, endsAt, categories, badge } = req.body;
-
-    const promo = await prisma.promotion.create({
-      data: {
-        title,
-        sub,
-        endsAt: new Date(endsAt),
-        categories,
-        badge,
-      },
-    });
-
-    res.json(promo);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-export const deletePromotion = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    await prisma.promotion.delete({
-      where: { id: Number(id) },
-    });
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-// ============Ruffel Draw=============
-
-export const createRound = async (req, res) => {
-  const { startAt, endAt, drawAt } = req.body;
-
-  const roundId = Date.now().toString();
-
-  const round = await prisma.raffleRound.create({
-    data: {
-      roundId,
-      startAt: new Date(startAt),
-      endAt: new Date(endAt),
-      drawAt: new Date(drawAt),
-    },
-  });
-
-  res.json(round);
-};
-
-export const forceDraw = async (req, res) => {
-  await drawWinners();
-  res.json({ message: "Draw completed" });
-};
-
-export const getRounds = async (req, res) => {
-  const rounds = await prisma.raffleRound.findMany({
-    orderBy: { createdAt: "desc" },
-  });
-
-  res.json(rounds);
-};
-
 // ========== live- chat=======
 
 export const deleteMessage = async (req, res) => {
@@ -450,5 +385,473 @@ export const deleteMessage = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ========== Daily contest by admin==========
+
+// ================= SEED CONTEST =================
+export const seedContest = async (req, res) => {
+  try {
+    const contest = await prisma.dailyContest.create({
+      data: {
+        title: "Daily Contest",
+        prizePool: 5000,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        isActive: true,
+
+        leaderboard: {
+          create: [
+            {
+              playerName: "TestUser",
+              wager: 10000,
+              prize: 5000,
+              rank: 1
+            }
+          ]
+        },
+
+        histories: {
+          create: [
+            {
+              playerName: "LastWinner",
+              wager: 20000,
+              prize: 10000,
+              rank: 1
+            }
+          ]
+        }
+      }
+    });
+
+    res.json(contest);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ================= ADD LEADERBOARD =================
+export const addLeaderboard = async (req, res) => {
+  try {
+    const { contestId,userId, playerName, wager, prize, rank } = req.body;
+
+     if (!contestId || !playerName || !userId) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const data = await prisma.dailyContestLeaderboard.create({
+      data: {
+        contestId: Number(contestId),
+        userId: Number(userId),
+        playerName,
+        wager: Number(wager || 0),
+        prize: Number(prize || 0),
+        rank: Number(rank || 0)
+      }
+    });
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ================= ADD HISTORY =================
+export const addHistory = async (req, res) => {
+  try {
+    const { contestId, playerName, wager, prize, rank } = req.body;
+
+    const data = await prisma.dailyContestHistory.create({
+      data: {
+        contestId: Number(contestId),
+        playerName,
+        wager: Number(wager || 0),
+        prize: Number(prize || 0),
+        rank: Number(rank || 0)
+      }
+    });
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ================= ADD RULE =================
+export const addRule = async (req, res) => {
+  try {
+    const { content, order } = req.body;
+
+    const data = await prisma.dailyContestRule.create({
+      data: {
+        content,
+        order: Number(order || 0)
+      }
+    });
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ================= ADD CURRENCY =================
+export const addCurrency = async (req, res) => {
+  try {
+    const { groupText, order } = req.body;
+
+    const data = await prisma.dailyContestCurrency.create({
+      data: {
+        groupText,
+        order: Number(order || 0)
+      }
+    });
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+// weekly raffle -lucky ticket =====
+
+
+// ✅ CREATE NEW RAFFLE ROUND
+export const createRaffleRound = async (req, res) => {
+  try {
+    const { roundId, prizePool, totalTickets, startAt, endAt, drawAt } = req.body;
+
+    const round = await prisma.raffleRound.create({
+      data: {
+        roundId,
+        prizePool,
+        totalTickets,
+        startAt: new Date(startAt),
+        endAt: new Date(endAt),
+        drawAt: new Date(drawAt),
+        status: "ACTIVE",
+      },
+    });
+
+    res.json(round);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to create round" });
+  }
+};
+
+// ✅ SET ACTIVE ROUND
+export const setActiveRound = async (req, res) => {
+  try {
+    const { roundId } = req.params;
+
+    // deactivate all
+    await prisma.raffleRound.updateMany({
+      data: { status: "DRAWN" },
+    });
+
+    // activate selected
+    const round = await prisma.raffleRound.update({
+      where: { roundId },
+      data: { status: "ACTIVE" },
+    });
+
+    res.json({ message: "Round activated", round });
+  } catch (err) {
+    res.status(500).json({ message: "Failed" });
+  }
+};
+
+// ✅ GET ALL ROUNDS
+export const getAllRounds = async (req, res) => {
+  try {
+    const rounds = await prisma.raffleRound.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json(rounds);
+  } catch (err) {
+    res.status(500).json({ message: "Failed" });
+  }
+};
+
+// ✅ DRAW WINNERS
+export const userDrawWinners = async (req, res) => {
+  try {
+    const { roundId } = req.params;
+
+    const existing = await prisma.raffleWinner.findFirst({
+      where: { roundId },
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: "Already drawn" });
+    }
+
+    const tickets = await prisma.raffleTicket.findMany({
+      where: { roundId },
+    });
+
+    if (!tickets.length) {
+      return res.status(400).json({ message: "No tickets found" });
+    }
+
+    const round = await prisma.raffleRound.findUnique({
+      where: { roundId },
+    });
+
+    const totalPrize = Number(round.prizePool);
+
+    const shuffled = tickets.sort(() => 0.5 - Math.random());
+    const winners = shuffled.slice(0, 10);
+
+    const distribution = [50, 20, 10, 5, 5, 3, 3, 2, 1, 1];
+
+    const result = await prisma.$transaction(async (tx) => {
+      const created = [];
+
+      for (let i = 0; i < winners.length; i++) {
+        const ticket = winners[i];
+        const prize = (totalPrize * distribution[i]) / 100;
+
+        await tx.raffleTicket.update({
+          where: { id: ticket.id },
+          data: {
+            isWinner: true,
+            prize,
+          },
+        });
+
+        const winner = await tx.raffleWinner.create({
+          data: {
+            userId: ticket.userId,
+            roundId,
+            ticketNo: ticket.ticketNumber,
+            prize,
+          },
+        });
+
+        created.push(winner);
+      }
+
+      // ✅ mark round complete
+      await tx.raffleRound.update({
+        where: { roundId },
+        data: { status: "DRAWN" },
+      });
+
+      return created;
+    });
+
+    res.json({
+      message: "Winners drawn successfully",
+      winners: result,
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Draw failed" });
+  }
+};
+
+//=============Promotions=========
+export const createPromotion = async (req, res) => {
+  try {
+    const { title, subtitle, endsAt, categories, badge } = req.body;
+
+    const promo = await prisma.promotion.create({
+      data: {
+        title,
+        subtitle,
+        endsAt: new Date(endsAt),
+        categories, // array ["Casino","Sports"]
+        badge
+      }
+    });
+
+    res.json(promo);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const updatePromotion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = req.body;
+
+    const promo = await prisma.promotion.update({
+      where: { id: Number(id) },
+      data: {
+        ...data,
+        endsAt: data.endsAt ? new Date(data.endsAt) : undefined
+      }
+    });
+
+    res.json(promo);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const deletePromotion = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.promotion.delete({
+      where: { id: Number(id) }
+    });
+
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const togglePromotionStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const promo = await prisma.promotion.findUnique({
+      where: { id: Number(id) }
+    });
+
+    const updated = await prisma.promotion.update({
+      where: { id: Number(id) },
+      data: {
+        status: promo.status === "ACTIVE" ? "ARCHIVED" : "ACTIVE"
+      }
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const createDepositTier = async (req, res) => {
+  try {
+    const { percentage, label, minAmount, order } = req.body;
+
+    const tier = await prisma.depositBonusTier.create({
+      data: {
+        percentage,
+        label,
+        minAmount,
+        order
+      }
+    });
+
+    res.json(tier);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const updateDepositTier = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const tier = await prisma.depositBonusTier.update({
+      where: { id: Number(id) },
+      data: req.body
+    });
+
+    res.json(tier);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const deleteDepositTier = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.depositBonusTier.delete({
+      where: { id: Number(id) }
+    });
+
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+//===============Bonus============
+
+/* ================= CREATE BONUS CODE ================= */
+export const createBonusCode = async (req, res) => {
+  try {
+    const { code, amount } = req.body;
+
+    const newCode = await prisma.bonusCode.create({
+      data: { code, amount }
+    });
+
+    res.json(newCode);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================= GET ALL BONUS CODES ================= */
+export const getBonusCodes = async (req, res) => {
+  try {
+    const codes = await prisma.bonusCode.findMany({
+      orderBy: { createdAt: "desc" }
+    });
+
+    res.json(codes);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================= TOGGLE CODE ================= */
+export const toggleBonusCode = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const code = await prisma.bonusCode.update({
+      where: { id },
+      data: {
+        isActive: { set: false }
+      }
+    });
+
+    res.json(code);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/* ================= MANUAL BONUS ================= */
+export const giveUserBonus = async (req, res) => {
+  try {
+    const { userId, amount } = req.body;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.walletTransaction.create({
+        data: {
+          userId,
+          currency: "INR",
+          amount,
+          type: "DEPOSIT",
+          status: "COMPLETED",
+          referenceType: "ADMIN_BONUS"
+        }
+      });
+
+      await tx.wallet.update({
+        where: {
+          userId_currency: { userId, currency: "INR" }
+        },
+        data: {
+          bonus: { increment: amount }
+        }
+      });
+    });
+
+    res.json({ message: "Bonus given ✅" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };

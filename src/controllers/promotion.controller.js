@@ -81,10 +81,15 @@ export const getPromotions = async (req, res) => {
       };
     }
 
-    const promotions = await prisma.promotion.findMany({
-      where,
-      orderBy: { createdAt: "desc" }
-    });
+const promotions = await prisma.promotion.findMany({
+  where: {
+    status: "ACTIVE",
+    ...(category !== "All" && {
+      categories: { has: category }
+    })
+  },
+  orderBy: { createdAt: "desc" }
+});
 
     res.json(promotions);
 
