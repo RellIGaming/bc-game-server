@@ -291,20 +291,28 @@ export const redeemCode = async (req, res) => {
     const userId = req.user.id;
     const { code } = req.body;
 
+    /* ================= VALIDATION ================= */
+
     if (!code) {
-      return res.status(400).json({ message: "Code required" });
+      return res.status(400).json({
+        message: "Code required"
+      });
     }
 
-    /* ===== 1. FIND BONUS ===== */
+    /* ================= FIND BONUS ================= */
+
     const bonus = await prisma.bonusCode.findUnique({
       where: { code }
     });
 
     if (!bonus || !bonus.isActive) {
-      return res.status(400).json({ message: "Invalid code" });
+      return res.status(400).json({
+        message: "Invalid code"
+      });
     }
 
-    /* ===== 2. CHECK ALREADY USED ===== */
+    /* ================= ALREADY USED ================= */
+
     const alreadyUsed = await prisma.bonusRedemption.findUnique({
       where: {
         userId_bonusId: {
@@ -315,55 +323,84 @@ export const redeemCode = async (req, res) => {
     });
 
     if (alreadyUsed) {
-      return res.status(400).json({ message: "Already redeemed" });
+      return res.status(400).json({
+        message: "Already redeemed"
+      });
     }
 
-    /* ===== 3. CALCULATE BONUS ===== */
+    /* ================= CALCULATE BONUS ================= */
+
     let finalAmount = 0;
 
+    // FIXED BONUS
     if (bonus.type === "FIXED") {
       finalAmount = Number(bonus.amount);
     }
 
+    // PERCENT BONUS
     if (bonus.type === "PERCENT") {
+
       const lastDeposit = await prisma.walletTransaction.findFirst({
         where: {
           userId,
           type: "DEPOSIT"
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: {
+          createdAt: "desc"
+        }
       });
 
       const depositAmount = Number(lastDeposit?.amount || 0);
 
-      finalAmount = (depositAmount * Number(bonus.amount)) / 100;
+      console.log("Deposit Amount:", depositAmount);
+
+      finalAmount =
+        (depositAmount * Number(bonus.amount)) / 100;
     }
+
+    console.log("Final Bonus Amount:", finalAmount);
 
     if (finalAmount <= 0) {
-      return res.status(400).json({ message: "Invalid bonus amount" });
+      return res.status(400).json({
+        message: "Invalid bonus amount"
+      });
     }
 
-    /* ===== 4. APPLY BONUS ===== */
+    /* ================= APPLY BONUS ================= */
+
     await prisma.$transaction(async (tx) => {
-      // Add bonus to wallet
-      await tx.wallet.update({
+
+      /* ===== WALLET ===== */
+
+      await tx.wallet.upsert({
         where: {
           userId_currency: {
             userId,
             currency: "BDT"
           }
         },
-        data: {
+
+        update: {
           bonus: {
             increment: finalAmount
           },
+
           lockedAmount: {
-            increment: finalAmount * 10 // 🔥 10x wagering
+            increment: finalAmount * 10
           }
+        },
+
+        create: {
+          userId,
+          currency: "BDT",
+          balance: 0,
+          bonus: finalAmount,
+          lockedAmount: finalAmount * 10
         }
       });
 
-      // Create transaction
+      /* ===== TRANSACTION ===== */
+
       await tx.walletTransaction.create({
         data: {
           userId,
@@ -371,12 +408,16 @@ export const redeemCode = async (req, res) => {
           amount: finalAmount,
           type: "DEPOSIT",
           status: "COMPLETED",
+
           referenceType: "BONUS_CODE",
-          referenceId: bonus.id
+
+          // IMPORTANT FIX
+          referenceId: bonus.id.toString()
         }
       });
 
-      // Save redemption (VERY IMPORTANT)
+      /* ===== SAVE REDEMPTION ===== */
+
       await tx.bonusRedemption.create({
         data: {
           userId,
@@ -385,48 +426,83 @@ export const redeemCode = async (req, res) => {
         }
       });
 
-      // Increase usage count
+      /* ===== UPDATE BONUS USAGE ===== */
+
       await tx.bonusCode.update({
-        where: { id: bonus.id },
+        where: {
+          id: bonus.id
+        },
+
         data: {
           usedCount: {
             increment: 1
           }
         }
       });
+
+      /* ===== CREATE ROLLOVER ===== */
+
       await tx.rollover.create({
         data: {
-          userId: userId,
+          userId,
           bonusId: bonus.id,
+
           source: "BONUS_CODE",
-          required: finalAmount * 10, // 10x wagering
+
+          required: finalAmount * 10,
+
           wagered: 0,
+
           isCompleted: false
         }
       });
+
     });
 
-    /* ===== 5. RESPONSE ===== */
-    res.json({
-      message: "Bonus redeemed ✅",
+    /* ================= RESPONSE ================= */
+
+    return res.json({
+      success: true,
+      message: "Bonus redeemed successfully ✅",
       amount: finalAmount
     });
 
   } catch (err) {
-    res.status(500).json({ message: err.message });
+
+    console.error("REDEEM BONUS ERROR:", err);
+
+    return res.status(500).json({
+      message: err.message
+    });
   }
 };
-
 
 export const getBonusFull = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    /* ================= USER ================= */
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        xp: true
+      }
+    });
+ console.log(user);
+    const xp = Number(user?.xp || 0);
+
+    const level = Math.floor(xp / 100);
+
+    const nextXp = (level + 1) * 100;
+
     /* ================= SUMMARY ================= */
 
     const wallets = await prisma.wallet.findMany({
       where: { userId },
-      select: { bonus: true }
+      select: {
+        bonus: true
+      }
     });
 
     const totalBonus = wallets.reduce(
@@ -435,30 +511,28 @@ export const getBonusFull = async (req, res) => {
     );
 
     const referral = await prisma.walletTransaction.aggregate({
-      _sum: { amount: true },
+      _sum: {
+        amount: true
+      },
       where: {
         userId,
         referenceType: "REFERRAL"
       }
     });
 
-    /* ================= VIP (STATIC LOGIC FOR NOW) ================= */
-
-    // const xp = 0; // 🔥 later calculate from bets
-    const level = 0;
-    const nextXp = 100;
-
     /* ================= MONTHLY BONUS ================= */
 
     const monthlyTiers = [
-      { pct: 180, min: 0 },
-      { pct: 240, min: 10000 },
-      { pct: 300, min: 50000 },
-      { pct: 360, min: 100000 },
+      { percentage: 180, min: 0 },
+      { percentage: 240, min: 10000 },
+      { percentage: 300, min: 50000 },
+      { percentage: 360, min: 100000 }
     ];
 
     const userDeposit = await prisma.walletTransaction.aggregate({
-      _sum: { amount: true },
+      _sum: {
+        amount: true
+      },
       where: {
         userId,
         type: "DEPOSIT"
@@ -468,11 +542,11 @@ export const getBonusFull = async (req, res) => {
     const totalDeposit = Number(userDeposit._sum.amount || 0);
 
     const tiers = monthlyTiers.map((t, i) => ({
-      pct: t.pct,
+      percentage: t.percentage,
       active:
         totalDeposit >= t.min &&
         (i === monthlyTiers.length - 1 ||
-          totalDeposit < monthlyTiers[i + 1].min),
+          totalDeposit < monthlyTiers[i + 1].min)
     }));
 
     /* ================= BONUS LIST ================= */
@@ -510,18 +584,21 @@ export const getBonusFull = async (req, res) => {
 
     res.json({
       summary: {
-        totalBonus,
-        referral: Number(referral._sum.amount || 0),
-        vip: 0,
-        general: 0,
-        locked: totalBonus
+        totalClaimed: totalBonus,
+        vipBonus: 0,
+        specialBonus: 0,
+        generalBonus: Number(referral._sum.amount || 0),
+        lockedBonus: totalBonus
       },
 
       vip: {
         level,
         xp,
         nextXp,
-        progress: Math.min((xp / nextXp) * 100, 100)
+        progress:
+          nextXp > 0
+            ? Math.min((xp / nextXp) * 100, 100)
+            : 0
       },
 
       monthlyBonus: {
@@ -534,8 +611,14 @@ export const getBonusFull = async (req, res) => {
     });
 
   } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  console.error("BONUS FULL ERROR FULL:");
+  console.error(err);
+
+  return res.status(500).json({
+    message: err.message,
+    stack: err.stack
+  });
+}
 };
 
 export const seedBonusTestData = async (req, res) => {

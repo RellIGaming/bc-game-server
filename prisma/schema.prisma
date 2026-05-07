@@ -207,6 +207,7 @@ model BonusRedemption {
 
 model User {
   id       Int     @id @default(autoincrement())
+  xp       Int     @default(0)
   username String  @unique @db.VarChar(100)
   email    String? @unique @db.VarChar(150)
   phone    String? @db.VarChar(20)
