@@ -81,7 +81,7 @@ import { nanoid } from "nanoid";
 
 //         res.json({
 //             referralCode: user.referralCode,
-//             referralLink: `https://bc-game-client.onrender.com/i-${user.referralCode}`,
+//             referralLink: `https://bc-game-client.onrender.com/i/${user.referralCode}`,
 
 //             stats: {
 //                 totalFriends,
@@ -180,7 +180,7 @@ export const getReferralDashboard = async (req, res) => {
 
         res.json({
             referralCode: user.referralCode,
-            referralLink: `https://bc-game-client.onrender.com/i-${user.referralCode}`,
+            referralLink: `https://bc-game-client.onrender.com/i/${user.referralCode}`,
 
             stats: {
                 totalFriends,
@@ -316,7 +316,7 @@ export const createTestReferralReward = async (req, res) => {
             const tx = await txDb.walletTransaction.create({
                 data: {
                     userId,
-                    currency: "INR",
+                    currency: "BDT",
                     amount,
                     type: "REFERRAL_REWARD", // ✅ FIXED
                     status: "COMPLETED",
@@ -330,7 +330,7 @@ export const createTestReferralReward = async (req, res) => {
                 where: {
                     userId_currency: {
                         userId,
-                        currency: "INR"
+                        currency: "BDT"
                     }
                 },
                 data: {
@@ -523,7 +523,13 @@ export const getRewardHistory = async (req, res) => {
         const data = await prisma.walletTransaction.findMany({
             where: {
                 userId,
-                referenceType: "REFERRAL"
+                referenceType: "REFERRAL",
+
+                ...(type === "COMMISSION"
+                    ? { type: "DEPOSIT" }
+                    : type === "REFERRAL"
+                        ? { type: "REFERRAL_REWARD" }
+                        : {})
             },
             orderBy: { createdAt: "desc" },
             take: 50
@@ -555,7 +561,7 @@ export const getReferralCodes = async (req, res) => {
             codes: codes.map(c => ({
                 name: c.name || "--",
                 code: c.code,
-                link: `https://bc-game-client.onrender.com/i-${c.code}`,
+                link: `https://bc-game-client.onrender.com/i/${c.code}`,
                 rate: `${c.commissionRate || 25}%`,
                 date: c.createdAt,
                 referrals: c.referralsCount || 0
@@ -609,154 +615,154 @@ export const createReferralCode = async (req, res) => {
 };
 
 export const getCommissionRules = async (req, res) => {
-  try {
-    res.json({
-      baseRate: 1, // 1%
-      games: [
-        {
-          name: "Original Games",
-          rate: 28
-        },
-        {
-          name: "3rd Party Slots / Live Casino",
-          rate: 60
-        },
-        {
-          name: "All Sports",
-          rate: 100
-        }
-      ]
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+    try {
+        res.json({
+            baseRate: 1, // 1%
+            games: [
+                {
+                    name: "Original Games",
+                    rate: 28
+                },
+                {
+                    name: "3rd Party Slots / Live Casino",
+                    rate: 60
+                },
+                {
+                    name: "All Sports",
+                    rate: 100
+                }
+            ]
+        });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 };
 
 export const calculateCommission = async (req, res) => {
-  try {
-    const { wager, gameType } = req.body;
+    try {
+        const { wager, gameType } = req.body;
 
-    if (!wager || !gameType) {
-      return res.status(400).json({ message: "Missing params" });
+        if (!wager || !gameType) {
+            return res.status(400).json({ message: "Missing params" });
+        }
+
+        const base = wager * 0.01;
+
+        let rate = 28;
+
+        if (gameType === "slots") rate = 60;
+        if (gameType === "sports") rate = 100;
+
+        const result = (base * rate) / 100;
+
+        res.json({
+            wager,
+            baseCommission: base,
+            gameRate: rate,
+            result
+        });
+
+    } catch (err) {
+        res.status(500).json({ message: err.message });
     }
-
-    const base = wager * 0.01;
-
-    let rate = 28;
-
-    if (gameType === "slots") rate = 60;
-    if (gameType === "sports") rate = 100;
-
-    const result = (base * rate) / 100;
-
-    res.json({
-      wager,
-      baseCommission: base,
-      gameRate: rate,
-      result
-    });
-
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
 };
 
 export const getReferralVipLevels = async (req, res) => {
-  try {
-    const levels = [
-      { level: "Bronze I", wager: 1000, unlock: 0.5 },
-      { level: "Bronze II", wager: 3000, unlock: 2.5 },
-      { level: "Bronze IV", wager: 15000, unlock: 5 },
-      { level: "Silver I", wager: 30000, unlock: 12 },
-      { level: "Silver III", wager: 120000, unlock: 25 },
-      { level: "Silver IV", wager: 240000, unlock: 50 },
-      { level: "Gold I", wager: 500000, unlock: 80 },
-      { level: "Gold II", wager: 1000000, unlock: 120 },
-      { level: "Gold IV", wager: 2500000, unlock: 205 },
-      { level: "Platinum II", wager: 8500000, unlock: 500 }
-    ];
+    try {
+        const levels = [
+            { level: "Bronze I", wager: 1000, unlock: 0.5 },
+            { level: "Bronze II", wager: 3000, unlock: 2.5 },
+            { level: "Bronze IV", wager: 15000, unlock: 5 },
+            { level: "Silver I", wager: 30000, unlock: 12 },
+            { level: "Silver III", wager: 120000, unlock: 25 },
+            { level: "Silver IV", wager: 240000, unlock: 50 },
+            { level: "Gold I", wager: 500000, unlock: 80 },
+            { level: "Gold II", wager: 1000000, unlock: 120 },
+            { level: "Gold IV", wager: 2500000, unlock: 205 },
+            { level: "Platinum II", wager: 8500000, unlock: 500 }
+        ];
 
-    res.json({
-      currency: "USDT",
-      levels
-    });
+        res.json({
+            currency: "USDT",
+            levels
+        });
 
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 };
 
 export const getReferralProgress = async (req, res) => {
-  try {
-    const userId = req.user.id;
+    try {
+        const userId = req.user.id;
 
-    const totalWager = await prisma.bet.aggregate({
-      _sum: { amount: true },
-      where: { userId }
-    });
+        const totalWager = await prisma.bet.aggregate({
+            _sum: { amount: true },
+            where: { userId }
+        });
 
-    const wager = Number(totalWager._sum.amount || 0);
+        const wager = Number(totalWager._sum.amount || 0);
 
-    res.json({
-      totalWager: wager,
-      currentLevel: "Bronze I", // later calculate dynamically
-    });
+        res.json({
+            totalWager: wager,
+            currentLevel: "Bronze I", // later calculate dynamically
+        });
 
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 };
 
 export const processReferralUnlock = async (friendId) => {
-  const progressList = await prisma.referralProgress.findMany({
-    where: { friendId }
-  });
+    const progressList = await prisma.referralProgress.findMany({
+        where: { friendId }
+    });
 
-  for (const progress of progressList) {
-    const { totalWager, unlocked, userId } = progress;
+    for (const progress of progressList) {
+        const { totalWager, unlocked, userId } = progress;
 
-    let newReward = 0;
+        let newReward = 0;
 
-    for (const level of VIP_LEVELS) {
-      if (totalWager >= level.wager) {
-        newReward += level.reward;
-      }
+        for (const level of VIP_LEVELS) {
+            if (totalWager >= level.wager) {
+                newReward += level.reward;
+            }
+        }
+
+        const toUnlock = newReward - unlocked;
+
+        if (toUnlock > 0) {
+            await prisma.$transaction(async (tx) => {
+
+                // update unlocked
+                await tx.referralProgress.update({
+                    where: { id: progress.id },
+                    data: { unlocked: newReward }
+                });
+
+                // add wallet bonus
+                await tx.wallet.update({
+                    where: {
+                        userId_currency: { userId, currency: "BDT" }
+                    },
+                    data: {
+                        bonus: { increment: toUnlock }
+                    }
+                });
+
+                // transaction log
+                await tx.walletTransaction.create({
+                    data: {
+                        userId,
+                        amount: toUnlock,
+                        currency: "BDT",
+                        type: "REFERRAL_REWARD",
+                        referenceType: "REFERRAL",
+                        status: "COMPLETED",
+                        referenceId: String(friendId)
+                    }
+                });
+            });
+        }
     }
-
-    const toUnlock = newReward - unlocked;
-
-    if (toUnlock > 0) {
-      await prisma.$transaction(async (tx) => {
-        
-        // update unlocked
-        await tx.referralProgress.update({
-          where: { id: progress.id },
-          data: { unlocked: newReward }
-        });
-
-        // add wallet bonus
-        await tx.wallet.update({
-          where: {
-            userId_currency: { userId, currency: "INR" }
-          },
-          data: {
-            bonus: { increment: toUnlock }
-          }
-        });
-
-        // transaction log
-        await tx.walletTransaction.create({
-          data: {
-            userId,
-            amount: toUnlock,
-            currency: "INR",
-            type: "REFERRAL_REWARD",
-            referenceType: "REFERRAL",
-            status: "COMPLETED",
-            referenceId: String(friendId)
-          }
-        });
-      });
-    }
-  }
 };

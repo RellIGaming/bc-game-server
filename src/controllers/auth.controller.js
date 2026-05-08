@@ -186,14 +186,7 @@ RETURNING *`,
     );
 
     const user = newUser.rows[0];
-    if (referredBy) {
-      await prisma.referralProgress.create({
-        data: {
-          userId: referredBy,
-          friendId: user.id
-        }
-      });
-    }
+
     /* ================= CREATE WALLETS ================= */
 
     const currencies = ["INR", "BDT", "USD", "PKR"];
@@ -207,7 +200,40 @@ RETURNING *`,
     }
 
     await client.query("COMMIT");
+    if (referredBy) {
+      await prisma.referralProgress.create({
+        data: {
+          userId: referredBy,
+          friendId: user.id
+        }
+      });
 
+      await prisma.wallet.update({
+        where: {
+          userId_currency: {
+            userId: referredBy,
+            currency: "INR"
+          }
+        },
+        data: {
+          bonus: {
+            increment: 100
+          }
+        }
+      });
+
+      await prisma.walletTransaction.create({
+        data: {
+          userId: referredBy,
+          currency: "INR",
+          amount: 100,
+          type: "REFERRAL_REWARD",
+          status: "COMPLETED",
+          referenceType: "REFERRAL",
+          referenceId: String(user.id)
+        }
+      });
+    }
     const walletsResult = await client.query(
       `SELECT currency, balance, bonus FROM wallets WHERE user_id = $1`,
       [user.id]
@@ -219,7 +245,7 @@ RETURNING *`,
       balance: Number(user.balance).toFixed(2),
       wallets: walletsResult.rows,
       referralCode: user.referral_code, // ✅ return it
-      referralLink: `https://bc-game-client.onrender.com/i-${user.referral_code}` // ✅ ready for frontend
+      referralLink: `https://bc-game-client.onrender.com/i/${user.referral_code}` // ✅ ready for frontend
     });
 
   } catch (error) {
@@ -261,7 +287,7 @@ export const signin = async (req, res) => {
       token: generateToken(user.id),
       user: formatUser(user),
       referralCode: user.referral_code,
-      referralLink: `https://bc-game-client.onrender.com/i-${user.referral_code}`
+      referralLink: `https://bc-game-client.onrender.com/i/${user.referral_code}`
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
