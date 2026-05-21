@@ -42,6 +42,7 @@ app.use(
       "http://localhost:5173",
       "https://bc-game-client.onrender.com",
       "https://game-hero-dashboard.lovable.app",
+      "https://rellbet-admin-hub.lovable.app",
       
     ],
      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],

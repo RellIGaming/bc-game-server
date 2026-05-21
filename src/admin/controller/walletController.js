@@ -35,49 +35,22 @@ export const setExchangeRate = async (req, res) => {
 // POST /api/admin/withdraw/approve
 // POST /api/admin/set-agent-wallet
 
-// export const setAgentWallet = async (req, res) => {
-//   try {
-//     const { agentId, amount } = req.body;
 
-//     if (!agentId || amount == null) {
-//       return res.status(400).json({ message: "Missing fields" });
-//     }
-
-//     const wallet = await prisma.wallet.upsert({
-//       where: {
-//         userId_currency: {
-//           userId: agentId,
-//           currency: "BDT" // ✅ FIXED
-//         }
-//       },
-//       update: {
-//         balance: amount
-//       },
-//       create: {
-//         userId: agentId,
-//         currency: "BDT", // ✅ FIXED
-//         balance: amount
-//       }
-//     });
-
-//     res.json({
-//       message: "Agent wallet updated (BDT)",
-//       wallet
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// };
 export const setAgentWallet = async (req, res) => {
   try {
-    const { agentId, amount } = req.body;
+    const { agentId, amount, currency } = req.body;
+
+    if (!agentId || !currency) {
+      return res.status(400).json({
+        message: "agentId and currency required"
+      });
+    }
 
     const wallet = await prisma.wallet.upsert({
       where: {
         userId_currency: {
           userId: agentId,
-          currency: "BDT"
+          currency: currency.toUpperCase()
         }
       },
       update: {
@@ -85,18 +58,20 @@ export const setAgentWallet = async (req, res) => {
       },
       create: {
         userId: agentId,
-        currency: "BDT",
+        currency: currency.toUpperCase(),
         balance: amount
       }
     });
 
     res.json({
-      message: "Agent wallet updated (BDT)",
+      message: `Agent wallet updated (${currency.toUpperCase()})`,
       wallet
     });
 
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({
+      message: err.message
+    });
   }
 };
 /* ================= ALL DEPOSITS ================= */
